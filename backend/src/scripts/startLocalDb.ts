@@ -27,6 +27,7 @@ async function main() {
     db,
     port: 5432,
     host: '127.0.0.1',
+    debug: true,
   });
 
   await server.start();
