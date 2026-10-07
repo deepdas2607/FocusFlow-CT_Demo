@@ -1,0 +1,85 @@
+// This is the Prisma schema file.
+// It defines our database models and the connection to PostgreSQL.
+// Run `npx prisma migrate dev` to apply changes to your database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - stores registered users and their preferences
+model User {
+  id                    Int              @id @default(autoincrement())
+  name                  String
+  email                 String           @unique
+  passwordHash          String
+  occupation            String?          // Optional - used for CleverTap profile
+  interests             String?          // Comma-separated - used for CleverTap segmentation
+  preferredFocusDuration Int             @default(25) // In minutes
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  // Relations - one user has many tasks, focus sessions, and preferences
+  tasks                 Task[]
+  focusSessions         FocusSession[]
+  preferences           UserPreferences?
+}
+
+// Task model - stores user tasks
+model Task {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  title       String
+  description String?
+  category    String    @default("General")  // e.g. Work, Personal, Study
+  priority    String    @default("Medium")   // Low, Medium, High
+  completed   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  // Relation - every task belongs to one user
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // A task can have multiple focus sessions
+  focusSessions FocusSession[]
+}
+
+// FocusSession model - stores timer/focus session records
+model FocusSession {
+  id          Int                 @id @default(autoincrement())
+  userId      Int
+  taskId      Int?                // Optional - session may not be tied to a task
+  duration    Int                 // Planned duration in minutes (25, 45, 60)
+  startedAt   DateTime            @default(now())
+  completedAt DateTime?
+  status      FocusSessionStatus  @default(STARTED)
+
+  // Relations
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+}
+
+// Enum for focus session status
+enum FocusSessionStatus {
+  STARTED
+  COMPLETED
+  ABANDONED
+}
+
+// UserPreferences model - stores notification and app settings
+// Stored separately from User to keep User model clean
+model UserPreferences {
+  id                   Int     @id @default(autoincrement())
+  userId               Int     @unique
+  notificationsEnabled Boolean @default(true)
+  productivityReminders Boolean @default(true)
+  sessionReminders     Boolean @default(true)
+  weeklySummary        Boolean @default(true)
+
+  // One-to-one relation with User
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
