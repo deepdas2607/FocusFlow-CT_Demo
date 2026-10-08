@@ -7,3 +7,4 @@ item_id,title,category,duration_minutes,break_minutes,difficulty,recommended_tag
 106,Code Review Block,Work,40,8,Intermediate,Engineering,https://assets.focusflow.app/audio/cafe.mp3
 107,Exam Preparation Sprint,Study,50,10,Advanced,Exam Prep,https://assets.focusflow.app/audio/library.mp3
 108,Daily Wrap-up Session,Personal,15,3,Beginner,Reflection,https://assets.focusflow.app/audio/campfire.mp3
+
