@@ -36,3 +36,4 @@ export class CleverTapReportApi {
 }
 
 export const cleverTapReportApi = new CleverTapReportApi();
+

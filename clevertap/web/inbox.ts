@@ -59,3 +59,4 @@ export function showInbox(tabs: string[] = ['All', 'Updates', 'Streaks']): void 
     console.warn('[CleverTap Web Inbox] Error showing inbox:', error);
   }
 }
+

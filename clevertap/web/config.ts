@@ -18,3 +18,4 @@ export const defaultCleverTapConfig: CleverTapConfig = {
   enablePush: true,
   enableInbox: true,
 };
+

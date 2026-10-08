@@ -14,10 +14,10 @@ export async function startFocusSession(req: AuthenticatedRequest, res: Response
     return;
   }
 
-  // Validate allowed durations
-  const allowedDurations = [25, 45, 60];
+  // Validate allowed durations (standard pomodoro + quick sessions)
+  const allowedDurations = [1, 5, 25, 45, 60];
   if (!allowedDurations.includes(duration)) {
-    res.status(400).json({ error: 'Duration must be 25, 45, or 60 minutes.' });
+    res.status(400).json({ error: 'Duration must be 1, 5, 25, 45, or 60 minutes.' });
     return;
   }
 

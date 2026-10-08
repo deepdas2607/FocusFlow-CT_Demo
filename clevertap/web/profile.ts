@@ -74,3 +74,4 @@ export function updateUserProfile(properties: Partial<CleverTapUserProfile>): vo
     console.warn('[CleverTap Standalone Profile] Error updating profile:', error);
   }
 }
+

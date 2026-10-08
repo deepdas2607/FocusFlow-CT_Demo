@@ -23,6 +23,7 @@ import { focusApi, tasksApi, Task, FocusSession } from '../../lib/api';
 type SessionState = 'idle' | 'running' | 'paused' | 'completed' | 'abandoned';
 
 const DURATION_OPTIONS = [
+  { label: '1 min', value: 1, description: 'Quick Test' },
   { label: '25 min', value: 25, description: 'Pomodoro' },
   { label: '45 min', value: 45, description: 'Deep work' },
   { label: '60 min', value: 60, description: 'Flow state' },
@@ -37,6 +38,11 @@ export default function FocusPage() {
   // Session state
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [currentSession, setCurrentSession] = useState<FocusSession | null>(null);
+
+  // Refs to prevent stale closures and duplicate completion calls
+  const currentSessionRef = useRef<FocusSession | null>(null);
+  currentSessionRef.current = currentSession;
+  const isCompletingRef = useRef(false);
 
   // Timer state
   const [secondsRemaining, setSecondsRemaining] = useState(25 * 60);
@@ -72,6 +78,13 @@ export default function FocusPage() {
     }
   }, [selectedDuration, sessionState]);
 
+  const stopTimer = useCallback(() => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+  }, []);
+
   // Timer countdown logic
   const startTimer = useCallback(() => {
     // Clear any existing timer before starting a new one
@@ -82,8 +95,8 @@ export default function FocusPage() {
     timerIntervalRef.current = setInterval(() => {
       setSecondsRemaining((prev) => {
         if (prev <= 1) {
-          // Timer reached zero - auto-complete the session
           clearInterval(timerIntervalRef.current!);
+          timerIntervalRef.current = null;
           return 0;
         }
         return prev - 1;
@@ -92,22 +105,44 @@ export default function FocusPage() {
     }, 1000);
   }, []);
 
-  const stopTimer = useCallback(() => {
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-  }, []);
-
   // Cleanup timer on component unmount
   useEffect(() => {
     return () => stopTimer();
   }, [stopTimer]);
 
+  // Complete the session (user finishes early or timer hits zero)
+  const handleComplete = useCallback(async () => {
+    const session = currentSessionRef.current;
+    if (!session || isCompletingRef.current) return;
+    isCompletingRef.current = true;
+    stopTimer();
+    setIsLoading(true);
+
+    try {
+      const response = await focusApi.complete(session.id);
+      setCurrentSession(response.session);
+      setSessionState('completed');
+      setSuccessMessage('🎉 Great work! Focus session completed.');
+    } catch (err: any) {
+      setError(err.message || 'Could not complete session.');
+      isCompletingRef.current = false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [stopTimer]);
+
+  // Auto-complete session when timer reaches zero while running
+  useEffect(() => {
+    if (sessionState === 'running' && secondsRemaining <= 0 && currentSession && !isCompletingRef.current) {
+      handleComplete();
+    }
+  }, [secondsRemaining, sessionState, currentSession, handleComplete]);
+
   // Start a new focus session
   const handleStart = async () => {
     setIsLoading(true);
     setError('');
+    isCompletingRef.current = false;
 
     try {
       const response = await focusApi.start({
@@ -116,6 +151,7 @@ export default function FocusPage() {
       });
 
       setCurrentSession(response.session);
+      currentSessionRef.current = response.session;
       setSessionState('running');
       setSecondsRemaining(selectedDuration * 60);
       setSecondsElapsed(0);
@@ -140,34 +176,17 @@ export default function FocusPage() {
     startTimer();
   };
 
-  // Complete the session (user finishes early or timer hits zero)
-  const handleComplete = async () => {
-    if (!currentSession) return;
-    stopTimer();
-    setIsLoading(true);
-
-    try {
-      const response = await focusApi.complete(currentSession.id);
-      setCurrentSession(response.session);
-      setSessionState('completed');
-      setSuccessMessage('🎉 Great work! Focus session completed.');
-    } catch (err: any) {
-      setError(err.message || 'Could not complete session.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Abandon the session (user gives up early)
   const handleAbandon = async () => {
-    if (!currentSession) return;
+    const session = currentSessionRef.current || currentSession;
+    if (!session) return;
     if (!confirm('Are you sure you want to abandon this focus session?')) return;
 
     stopTimer();
     setIsLoading(true);
 
     try {
-      const response = await focusApi.abandon(currentSession.id);
+      const response = await focusApi.abandon(session.id);
       setCurrentSession(response.session);
       setSessionState('abandoned');
       setSuccessMessage('Session ended. Better luck next time!');
@@ -180,8 +199,10 @@ export default function FocusPage() {
 
   // Reset to idle state so the user can start a new session
   const handleReset = () => {
+    isCompletingRef.current = false;
     setSessionState('idle');
     setCurrentSession(null);
+    currentSessionRef.current = null;
     setSecondsRemaining(selectedDuration * 60);
     setSecondsElapsed(0);
     setSuccessMessage('');
@@ -255,7 +276,7 @@ export default function FocusPage() {
             {/* Duration selector */}
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <p className="text-sm font-medium text-gray-700 mb-3">Session duration</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {DURATION_OPTIONS.map((option) => (
                   <button
                     key={option.value}

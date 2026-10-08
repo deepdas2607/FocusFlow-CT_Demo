@@ -41,3 +41,4 @@ export function setupExitIntentListener(
     document.removeEventListener('mouseleave', handleMouseLeave);
   };
 }
+

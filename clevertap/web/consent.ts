@@ -41,3 +41,4 @@ export function setIpCollection(useIP: boolean): void {
     console.warn('[CleverTap Privacy] Error setting useIP:', error);
   }
 }
+

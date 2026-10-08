@@ -61,3 +61,4 @@ export function identifyUser(profile: CleverTapUserProfile): void {
 export function logoutCleverTapUser(): void {
   console.log('[CleverTap Standalone Identity] Session ended on user logout');
 }
+

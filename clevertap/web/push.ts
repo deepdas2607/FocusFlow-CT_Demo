@@ -51,3 +51,4 @@ export function requestWebPushPermission(config?: WebPushPromptConfig): void {
     console.warn('[CleverTap Web Push] Error requesting permission:', error);
   }
 }
+

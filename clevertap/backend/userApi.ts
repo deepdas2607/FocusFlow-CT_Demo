@@ -57,3 +57,4 @@ export class CleverTapUserApi {
 }
 
 export const cleverTapUserApi = new CleverTapUserApi();
+

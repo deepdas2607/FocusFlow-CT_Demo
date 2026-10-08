@@ -28,3 +28,4 @@ export class CleverTapEventApi {
 }
 
 export const cleverTapEventApi = new CleverTapEventApi();
+

@@ -71,3 +71,4 @@ export class CleverTapBackendClient {
 }
 
 export const cleverTapBackendClient = new CleverTapBackendClient();
+

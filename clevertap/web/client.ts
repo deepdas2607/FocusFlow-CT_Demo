@@ -53,3 +53,4 @@ export function initCleverTap(customConfig?: Partial<CleverTapConfig>): void {
     console.warn('[CleverTap Web] SDK initialization error:', error);
   }
 }
+
