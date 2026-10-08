@@ -1,0 +1,9 @@
+item_id,title,category,duration_minutes,break_minutes,difficulty,recommended_tag,soundscape_url
+101,Standard Pomodoro,Productivity,25,5,Beginner,Quick Sprint,https://assets.focusflow.app/audio/rain.mp3
+102,Deep Work Immersion,Work,45,10,Intermediate,Complex Problem,https://assets.focusflow.app/audio/whitenoise.mp3
+103,Ultra Flow State,Study,60,15,Advanced,Writing & Research,https://assets.focusflow.app/audio/binaural.mp3
+104,Micro Sprint,General,10,2,Beginner,Inbox Zero,https://assets.focusflow.app/audio/forest.mp3
+105,Creative Divergence,Personal,30,5,Intermediate,Brainstorming,https://assets.focusflow.app/audio/waves.mp3
+106,Code Review Block,Work,40,8,Intermediate,Engineering,https://assets.focusflow.app/audio/cafe.mp3
+107,Exam Preparation Sprint,Study,50,10,Advanced,Exam Prep,https://assets.focusflow.app/audio/library.mp3
+108,Daily Wrap-up Session,Personal,15,3,Beginner,Reflection,https://assets.focusflow.app/audio/campfire.mp3

@@ -1,0 +1,198 @@
+{
+  "info": {
+    "_postman_id": "focusflow-clevertap-collection-p3",
+    "name": "FocusFlow - CleverTap REST APIs (P3 & P4)",
+    "description": "Pre-built Postman collection for testing CleverTap Server-to-Server REST APIs (Day 13 User API / Event API, Day 14 Catalog, and Day 16 Linked Content).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "CLEVERTAP_ACCOUNT_ID",
+      "value": "YOUR_CLEVERTAP_ACCOUNT_ID",
+      "type": "string"
+    },
+    {
+      "key": "CLEVERTAP_PASSCODE",
+      "value": "YOUR_CLEVERTAP_PASSCODE",
+      "type": "string"
+    },
+    {
+      "key": "CLEVERTAP_REGION",
+      "value": "in1",
+      "type": "string"
+    },
+    {
+      "key": "FOCUSFLOW_LOCAL_API",
+      "value": "http://localhost:4000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. User API - Profile Push (/1/upload)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-CleverTap-Account-Id",
+            "value": "{{CLEVERTAP_ACCOUNT_ID}}",
+            "type": "text"
+          },
+          {
+            "key": "X-CleverTap-Passcode",
+            "value": "{{CLEVERTAP_PASSCODE}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"d\": [\n    {\n      \"identity\": \"100\",\n      \"type\": \"profile\",\n      \"profileData\": {\n        \"Name\": \"Alex Mercer\",\n        \"Email\": \"alex.mercer@focusflow.test\",\n        \"Occupation\": \"Product Designer\",\n        \"Interests\": \"Productivity, UX Design, Deep Work\",\n        \"Preferred Focus Duration\": 25,\n        \"Current Streak\": 4,\n        \"Total Focus Sessions\": 14,\n        \"Total Focus Minutes\": 350,\n        \"MSG-email\": true,\n        \"MSG-push\": true\n      }\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "https://{{CLEVERTAP_REGION}}.api.clevertap.com/1/upload",
+          "protocol": "https",
+          "host": [
+            "{{CLEVERTAP_REGION}}",
+            "api",
+            "clevertap",
+            "com"
+          ],
+          "path": [
+            "1",
+            "upload"
+          ]
+        },
+        "description": "Uploads user demographic and custom profile properties to CleverTap via server REST API."
+      }
+    },
+    {
+      "name": "2. Event API - Focus Session Completed (/1/upload)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-CleverTap-Account-Id",
+            "value": "{{CLEVERTAP_ACCOUNT_ID}}",
+            "type": "text"
+          },
+          {
+            "key": "X-CleverTap-Passcode",
+            "value": "{{CLEVERTAP_PASSCODE}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"d\": [\n    {\n      \"identity\": \"100\",\n      \"type\": \"event\",\n      \"evtName\": \"Focus Session Completed\",\n      \"evtData\": {\n        \"Duration (minutes)\": 25,\n        \"Task Category\": \"Work\",\n        \"Completed On Time\": true,\n        \"Elapsed Minutes\": 25,\n        \"Total Completed Sessions\": 15\n      }\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "https://{{CLEVERTAP_REGION}}.api.clevertap.com/1/upload",
+          "protocol": "https",
+          "host": [
+            "{{CLEVERTAP_REGION}}",
+            "api",
+            "clevertap",
+            "com"
+          ],
+          "path": [
+            "1",
+            "upload"
+          ]
+        },
+        "description": "Ingests a conversion funnel milestone event into CleverTap via server REST API."
+      }
+    },
+    {
+      "name": "3. Event API - Streak Achieved (/1/upload)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-CleverTap-Account-Id",
+            "value": "{{CLEVERTAP_ACCOUNT_ID}}",
+            "type": "text"
+          },
+          {
+            "key": "X-CleverTap-Passcode",
+            "value": "{{CLEVERTAP_PASSCODE}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"d\": [\n    {\n      \"identity\": \"100\",\n      \"type\": \"event\",\n      \"evtName\": \"Streak Achieved\",\n      \"evtData\": {\n        \"Streak Days\": 7\n      }\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "https://{{CLEVERTAP_REGION}}.api.clevertap.com/1/upload",
+          "protocol": "https",
+          "host": [
+            "{{CLEVERTAP_REGION}}",
+            "api",
+            "clevertap",
+            "com"
+          ],
+          "path": [
+            "1",
+            "upload"
+          ]
+        },
+        "description": "Records user streak milestone event to trigger re-engagement journey."
+      }
+    },
+    {
+      "name": "4. Linked Content - Daily Quote (FocusFlow Local API)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{FOCUSFLOW_LOCAL_API}}/api/public/linked-content/quote",
+          "host": [
+            "{{FOCUSFLOW_LOCAL_API}}"
+          ],
+          "path": [
+            "api",
+            "public",
+            "linked-content",
+            "quote"
+          ]
+        },
+        "description": "Tests the local FocusFlow endpoint that provides dynamic quote payloads for CleverTap campaign Linked Content."
+      }
+    },
+    {
+      "name": "5. Linked Content - Focus Presets (FocusFlow Local API)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{FOCUSFLOW_LOCAL_API}}/api/public/linked-content/presets",
+          "host": [
+            "{{FOCUSFLOW_LOCAL_API}}"
+          ],
+          "path": [
+            "api",
+            "public",
+            "linked-content",
+            "presets"
+          ]
+        },
+        "description": "Returns focus session templates for dynamic recommendation campaigns."
+      }
+    }
+  ]
+}

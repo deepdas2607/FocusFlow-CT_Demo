@@ -22,29 +22,33 @@ This module houses all CleverTap telemetry, SDK wrappers, event catalogues, user
 
 ```text
 clevertap/
-├── README.md                 # This master integration & reconnection manual
-├── package.json              # Standalone package metadata & dependency specification
-├── .env.example              # Documented credentials template
+├── README.md                              # Master integration & reconnection manual
+├── package.json                           # Standalone package metadata & dependency specification
+├── .env.example                           # Documented credentials template
+├── CleverTap_FocusFlow_Postman_Collection.json # Day 13 Pre-built Postman Collection (APIs & Linked Content)
 │
-├── web/                      # Client-side Web SDK v3 Integration
-│   ├── client.ts             # Web SDK initialization & safe window accessor
-│   ├── config.ts             # Account ID, Region, and runtime configuration
-│   ├── events.ts             # Full 20-event canonical registry & strongly-typed schemas
-│   ├── profile.ts            # Profile schema & profile.push updates
-│   ├── identity.ts           # Identity resolution & onUserLogin handler
-│   ├── push.ts               # Web Push soft prompt & permission subscription
-│   ├── inbox.ts              # Web Inbox initialization, unread counter & display modal
-│   ├── popup.ts              # In-App Pop-up triggers & native desktop Exit Intent listener
-│   ├── consent.ts            # GDPR/CCPA tracking opt-out & IP suppression (privacy.push)
-│   ├── CleverTapProvider.tsx # Reusable client component wrapper for Next.js root layout
-│   └── clevertap_sw.js       # Official CleverTap Web Push service worker
+├── catalog/                               # Day 14 Catalog & CSV Upload
+│   └── focusflow_presets_catalog.csv      # Ready-to-upload Focus Session Templates catalog
 │
-└── backend/                  # Server-side REST API Integration (/1/upload)
-    ├── client.ts             # Core HTTP client with batching & HMAC/passcode auth
-    ├── userApi.ts            # Server-to-server User Profile upload & demographic sync
-    ├── eventApi.ts           # Server-to-server Event Ingestion API
-    ├── campaignApi.ts        # Transactional Push dispatch & Dynamic Linked Content spec
-    └── reportApi.ts          # Server-to-server raw data export & audience profile query spec
+├── web/                                   # Client-side Web SDK v3 Integration
+│   ├── client.ts                          # Web SDK initialization & safe window accessor
+│   ├── config.ts                          # Account ID, Region, and runtime configuration
+│   ├── events.ts                          # Full 20-event canonical registry & strongly-typed schemas
+│   ├── profile.ts                         # Profile schema & profile.push updates
+│   ├── identity.ts                        # Identity resolution & onUserLogin handler
+│   ├── push.ts                            # Web Push soft prompt & permission subscription
+│   ├── inbox.ts                           # Web Inbox initialization, unread counter & display modal
+│   ├── popup.ts                           # In-App Pop-up triggers & native desktop Exit Intent listener
+│   ├── consent.ts                         # GDPR/CCPA tracking opt-out & IP suppression (privacy.push)
+│   ├── CleverTapProvider.tsx              # Reusable client component wrapper for Next.js root layout
+│   └── clevertap_sw.js                    # Official CleverTap Web Push service worker
+│
+└── backend/                               # Server-side REST API Integration (/1/upload)
+    ├── client.ts                          # Core HTTP client with batching & HMAC/passcode auth
+    ├── userApi.ts                         # Server-to-server User Profile upload & demographic sync
+    ├── eventApi.ts                        # Server-to-server Event Ingestion API
+    ├── campaignApi.ts                     # Transactional Push dispatch & Dynamic Linked Content spec
+    └── reportApi.ts                       # Server-to-server raw data export & audience profile query spec
 ```
 
 ---
