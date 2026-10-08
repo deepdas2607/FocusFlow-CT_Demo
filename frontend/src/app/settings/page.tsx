@@ -2,25 +2,12 @@
 
 /**
  * Settings / Profile page - Manages user profile, preferences, and privacy consent.
- *
- * CLEVERTAP LEARNING OBJECTIVES DEMONSTRATED:
- * 1. User Profiles & Segmentation:
- *    - Captures demographic attributes (Occupation, Interests) used for persona segmentation
- *      (e.g., "Developer Persona", "Student Persona").
- * 2. Personalization:
- *    - Preferred focus duration is stored as a custom profile property used in campaign templates
- *      (e.g., "Hi {{Name}}, ready for your {{Preferred Focus Duration}}-min session?").
- * 3. Consent & Privacy (GDPR / CCPA):
- *    - Explicit data processing & marketing consent flags.
- *    - Analytics opt-out toggle that executes `clevertap.privacy.push({ optOut: boolean })`.
  */
 
 import { useState, useEffect } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../contexts/AuthContext';
 import { profileApi } from '../../lib/api';
-import { updateUserProfile, setPrivacyOptOut, trackEvent } from '../../lib/clevertap/client';
-import { CLEVERTAP_EVENTS } from '../../lib/clevertap/events';
 
 const DURATION_OPTIONS = [
   { label: '25 minutes (Pomodoro)', value: 25 },
@@ -64,9 +51,6 @@ export default function SettingsPage() {
       setSessionReminders(user.preferences?.sessionReminders ?? true);
       setWeeklySummary(user.preferences?.weeklySummary ?? true);
     }
-
-    // CleverTap: track that the user viewed their profile
-    trackEvent(CLEVERTAP_EVENTS.PROFILE_VIEWED);
   }, [user]);
 
   const handleSave = async (event: React.FormEvent) => {
@@ -95,20 +79,6 @@ export default function SettingsPage() {
 
       setUser(response.user);
       setSuccessMessage('Profile and preferences saved successfully!');
-
-      // ─── CleverTap: Sync updated user profile properties ─────────────────
-      updateUserProfile({
-        name: response.user.name,
-        occupation: response.user.occupation || undefined,
-        interests: response.user.interests || undefined,
-        preferredFocusDuration: response.user.preferredFocusDuration,
-        notificationsEnabled: response.user.preferences?.notificationsEnabled,
-        marketingConsent,
-        dataProcessingConsent: !analyticsOptOut,
-      });
-
-      // Track the settings update event
-      trackEvent(CLEVERTAP_EVENTS.SETTINGS_UPDATED);
     } catch (err: any) {
       setError(err.message || 'Could not save profile.');
     } finally {
@@ -116,10 +86,9 @@ export default function SettingsPage() {
     }
   };
 
-  // Handle GDPR Analytics Opt-Out
+  // Handle Analytics Opt-Out
   const handleAnalyticsOptOutToggle = (optOut: boolean) => {
     setAnalyticsOptOut(optOut);
-    setPrivacyOptOut(optOut);
   };
 
   return (
@@ -150,7 +119,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-semibold text-gray-900">Profile Information</h2>
             <span className="text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full font-medium">
-              Synced with CleverTap Profile
+              User Profile
             </span>
           </div>
 
@@ -180,7 +149,7 @@ export default function SettingsPage() {
                 className="w-full px-4 py-3 rounded-lg border border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed"
               />
               <p className="text-xs text-gray-400 mt-1">
-                Serves as primary identity key in CleverTap customer profile.
+                Used to identify your account across sessions.
               </p>
             </div>
 
@@ -191,7 +160,7 @@ export default function SettingsPage() {
               >
                 Occupation / Role
                 <span className="text-xs text-gray-400 font-normal ml-1">
-                  (used for Persona Segmentation)
+                  (helps customize your workspace)
                 </span>
               </label>
               <input
@@ -211,7 +180,7 @@ export default function SettingsPage() {
               >
                 Interests & Skills
                 <span className="text-xs text-gray-400 font-normal ml-1">
-                  (comma-separated; for Interest-Based Campaigns)
+                  (comma-separated)
                 </span>
               </label>
               <input
@@ -231,7 +200,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-semibold text-gray-900">Focus Preferences</h2>
             <span className="text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full font-medium">
-              Personalization Attribute
+              Focus Settings
             </span>
           </div>
           <div>
@@ -254,7 +223,7 @@ export default function SettingsPage() {
               ))}
             </select>
             <p className="text-xs text-gray-400 mt-1">
-              Used in CleverTap message templates as: {'{{Preferred Focus Duration}}'}.
+              Default focus duration for new sessions.
             </p>
           </div>
         </section>
@@ -263,7 +232,7 @@ export default function SettingsPage() {
         <section className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Notification Preferences</h2>
           <p className="text-sm text-gray-500 mb-5">
-            Controls campaign subscription status in CleverTap.
+            Choose which notifications and nudges you would like to receive.
           </p>
           <div className="space-y-4">
             <ToggleRow
@@ -297,29 +266,29 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* 4. Privacy & Consent (GDPR / CCPA) */}
+        {/* 4. Privacy & Consent */}
         <section className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold text-gray-900">Privacy & Consent (GDPR)</h2>
-            <span className="text-xs bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full font-medium">
-              clevertap.privacy API
+            <h2 className="text-lg font-semibold text-gray-900">Privacy & Data Preferences</h2>
+            <span className="text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full font-medium">
+              Privacy
             </span>
           </div>
           <p className="text-sm text-gray-500 mb-5">
-            Manage your telemetry consent and analytics privacy settings.
+            Manage your data preferences and personalization options.
           </p>
           <div className="space-y-4">
             <ToggleRow
               id="pref-marketing-consent"
-              label="Marketing & Personalized Offers"
-              description="Allow CleverTap to personalize campaign messages for you"
+              label="Product Tips & Updates"
+              description="Receive productivity recommendations and feature highlights"
               checked={marketingConsent}
               onChange={setMarketingConsent}
             />
             <ToggleRow
               id="pref-opt-out"
-              label="Opt Out of All Analytics Tracking"
-              description="Enables clevertap.privacy.push({ optOut: true }) to cease all tracking"
+              label="Opt Out of Analytics Tracking"
+              description="Cease collecting anonymized usage metrics"
               checked={analyticsOptOut}
               onChange={handleAnalyticsOptOutToggle}
             />
@@ -332,7 +301,7 @@ export default function SettingsPage() {
           disabled={isLoading}
           className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
         >
-          {isLoading ? 'Saving...' : 'Save Settings & Sync to CleverTap'}
+          {isLoading ? 'Saving...' : 'Save Settings'}
         </button>
       </form>
     </AppLayout>

@@ -3,16 +3,10 @@ import { Router, Request, Response } from 'express';
 const router = Router();
 
 /**
- * Linked Content Endpoints for CleverTap Campaigns
+ * Public Dynamic Content Endpoints
  *
- * HOW LINKED CONTENT WORKS IN CLEVERTAP (P4 Day 16 & P3 Day 14):
- * CleverTap can make an HTTP GET request to an external API at the moment
- * a campaign or journey is being delivered to fetch live, personalized data.
- *
- * Example in CleverTap Campaign Template:
- * {{#linked_content url='http://localhost:4000/api/public/linked-content/quote'}}
- *   "{{quote}}" — {{author}}
- * {{/linked_content}}
+ * Provides real-time productivity quotes and focus session presets.
+ * Can be queried by web clients or external marketing engines as dynamic linked content.
  */
 
 // GET /api/public/linked-content/quote

@@ -12,8 +12,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authApi, TOKEN_KEY, User } from '../lib/api';
-import { identifyUser, logoutCleverTapUser, trackEvent, initWebInbox } from '../lib/clevertap/client';
-import { CLEVERTAP_EVENTS } from '../lib/clevertap/events';
 
 // Define what the context will provide to components
 interface AuthContextValue {
@@ -49,21 +47,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Verify the token is still valid by fetching the current user
         const response = await authApi.getMe();
         setUser(response.user);
-
-        // Re-identify the user in CleverTap after page refresh
-        // This ensures CleverTap knows who this user is
-        identifyUser({
-          name: response.user.name,
-          email: response.user.email,
-          identity: response.user.id,
-          occupation: response.user.occupation || undefined,
-          interests: response.user.interests || undefined,
-          preferredFocusDuration: response.user.preferredFocusDuration,
-          notificationsEnabled: response.user.preferences?.notificationsEnabled,
-        });
-
-        // Initialize Web Inbox for the authenticated user
-        initWebInbox();
       } catch {
         // Token is invalid or expired - remove it
         localStorage.removeItem(TOKEN_KEY);
@@ -82,31 +65,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Store the JWT token in localStorage
     localStorage.setItem(TOKEN_KEY, response.token);
     setUser(response.user);
-
-    // Identify the user in CleverTap so all future events are tied to their profile
-    identifyUser({
-      name: response.user.name,
-      email: response.user.email,
-      identity: response.user.id,
-      occupation: response.user.occupation || undefined,
-      interests: response.user.interests || undefined,
-      preferredFocusDuration: response.user.preferredFocusDuration,
-      notificationsEnabled: response.user.preferences?.notificationsEnabled,
-    });
-
-    // Initialize Web Inbox
-    initWebInbox();
-
-    // Track the login event in CleverTap
-    trackEvent(CLEVERTAP_EVENTS.USER_LOGGED_IN);
   }, []);
 
   // Logout function - clears token and redirects to login
   const logout = useCallback(() => {
-    // Track the logout event before clearing user data
-    trackEvent(CLEVERTAP_EVENTS.USER_LOGGED_OUT);
-    logoutCleverTapUser();
-
     // Remove the JWT token from localStorage
     localStorage.removeItem(TOKEN_KEY);
     setUser(null);

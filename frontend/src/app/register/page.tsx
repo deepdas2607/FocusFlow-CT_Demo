@@ -5,15 +5,12 @@
  *
  * Form fields: Name, Email, Password, Confirm Password
  * On success: saves JWT to localStorage and redirects to dashboard.
- * CleverTap: fires User Registered event and identifies the user.
  */
 
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authApi, TOKEN_KEY } from '../../lib/api';
-import { identifyUser, trackEvent } from '../../lib/clevertap/client';
-import { CLEVERTAP_EVENTS } from '../../lib/clevertap/events';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function RegisterPage() {
@@ -63,20 +60,6 @@ export default function RegisterPage() {
 
       // Update the auth context with the new user
       setUser(response.user);
-
-      // ─── CleverTap: Identify new user and track registration event ────────
-      // This creates a CleverTap user profile with their details.
-      identifyUser({
-        name: response.user.name,
-        email: response.user.email,
-        identity: response.user.id,
-        preferredFocusDuration: response.user.preferredFocusDuration,
-      });
-
-      // Track the registration event for campaign targeting
-      // e.g. "Send welcome message to users who just registered"
-      trackEvent(CLEVERTAP_EVENTS.USER_REGISTERED);
-      // ─────────────────────────────────────────────────────────────────────
 
       // Redirect to dashboard on success
       router.push('/dashboard');

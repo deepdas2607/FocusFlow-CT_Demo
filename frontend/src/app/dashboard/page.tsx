@@ -8,8 +8,6 @@
  * - Today's stats (tasks completed, streak, focus time)
  * - Today's task list
  * - Quick button to start a focus session
- *
- * CleverTap: tracks Dashboard Viewed event and streak milestones.
  */
 
 import { useState, useEffect } from 'react';
@@ -17,11 +15,6 @@ import { useRouter } from 'next/navigation';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../contexts/AuthContext';
 import { dashboardApi, DashboardData, Task } from '../../lib/api';
-import { trackEvent, trackStreakAchieved } from '../../lib/clevertap/client';
-import { CLEVERTAP_EVENTS } from '../../lib/clevertap/events';
-
-// Milestones to celebrate (in days)
-const STREAK_MILESTONES = [7, 14, 30];
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -39,19 +32,6 @@ export default function DashboardPage() {
       try {
         const data = await dashboardApi.getData();
         setDashboardData(data);
-
-        // Track that the user viewed the dashboard
-        trackEvent(CLEVERTAP_EVENTS.DASHBOARD_VIEWED);
-
-        // Check if the user hit a streak milestone and track it
-        if (STREAK_MILESTONES.includes(data.currentStreak)) {
-          trackStreakAchieved(data.currentStreak);
-        }
-
-        // Check if all today's tasks are completed (Daily Goal Completed milestone)
-        if (data.todaysTasks.length > 0 && data.tasksCompletedToday >= data.todaysTasks.length) {
-          trackEvent(CLEVERTAP_EVENTS.DAILY_GOAL_COMPLETED);
-        }
       } catch (err: any) {
         setError(err.message || 'Could not load dashboard data.');
       } finally {

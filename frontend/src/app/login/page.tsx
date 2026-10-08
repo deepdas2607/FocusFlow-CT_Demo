@@ -3,8 +3,7 @@
 /**
  * Login page - existing user authentication.
  *
- * On success: saves JWT to localStorage, identifies user in CleverTap,
- * tracks login event, and redirects to dashboard.
+ * On success: saves JWT to localStorage and redirects to dashboard.
  */
 
 import { useState } from 'react';
@@ -37,8 +36,7 @@ export default function LoginPage() {
 
     try {
       // The login function is provided by AuthContext.
-      // It calls the API, saves the token, updates user state,
-      // identifies the user in CleverTap, and tracks the login event.
+      // It calls the API, saves the token, and updates user state.
       await login(email, password);
 
       router.push('/dashboard');

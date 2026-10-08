@@ -14,27 +14,11 @@
  * The session record in the database tracks start time and status.
  * If the user closes the tab, the session remains "STARTED" in the DB.
  * This is intentional - we keep the backend simple.
- *
- * CleverTap events:
- * - Focus Session Started (with duration and task category)
- * - Focus Session Paused
- * - Focus Session Resumed
- * - Focus Session Completed (with completedOnTime, elapsedMinutes)
- * - Focus Session Abandoned (with elapsedMinutes)
- * - First Focus Session (milestone)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import { focusApi, tasksApi, Task, FocusSession } from '../../lib/api';
-import {
-  trackFocusSessionStarted,
-  trackFocusSessionCompleted,
-  trackFocusSessionAbandoned,
-  trackEvent,
-  trackFirstFocusSession,
-} from '../../lib/clevertap/client';
-import { CLEVERTAP_EVENTS } from '../../lib/clevertap/events';
 
 type SessionState = 'idle' | 'running' | 'paused' | 'completed' | 'abandoned';
 
@@ -136,22 +120,6 @@ export default function FocusPage() {
       setSecondsRemaining(selectedDuration * 60);
       setSecondsElapsed(0);
       startTimer();
-
-      // Get the selected task's category for CleverTap event properties
-      const selectedTask = tasks.find((t) => t.id === selectedTaskId);
-
-      // CleverTap: track session start with duration, task category, and linking flag
-      trackFocusSessionStarted({
-        duration: selectedDuration,
-        taskCategory: selectedTask?.category,
-        hasLinkedTask: !!selectedTaskId,
-        sessionHourOfDay: new Date().getHours(),
-      });
-
-      // Track milestone: first ever focus session
-      if (response.isFirstSession) {
-        trackFirstFocusSession();
-      }
     } catch (err: any) {
       setError(err.message || 'Could not start focus session.');
     } finally {
@@ -164,18 +132,12 @@ export default function FocusPage() {
     stopTimer();
     setSessionState('paused');
     pausedSecondsRef.current = secondsElapsed;
-
-    // CleverTap: track pause event
-    trackEvent(CLEVERTAP_EVENTS.FOCUS_SESSION_PAUSED);
   };
 
   // Resume a paused timer
   const handleResume = () => {
     setSessionState('running');
     startTimer();
-
-    // CleverTap: track resume event
-    trackEvent(CLEVERTAP_EVENTS.FOCUS_SESSION_RESUMED);
   };
 
   // Complete the session (user finishes early or timer hits zero)
@@ -189,18 +151,6 @@ export default function FocusPage() {
       setCurrentSession(response.session);
       setSessionState('completed');
       setSuccessMessage('🎉 Great work! Focus session completed.');
-
-      // Get the selected task's category
-      const selectedTask = tasks.find((t) => t.id === selectedTaskId);
-
-      // CleverTap: track completion with how long they lasted and whether they finished on time
-      trackFocusSessionCompleted({
-        duration: selectedDuration,
-        taskCategory: selectedTask?.category,
-        completedOnTime: response.completedOnTime,
-        elapsedMinutes: response.elapsedMinutes,
-        totalCompletedSessionsSoFar: response.totalCompletedSessions,
-      });
     } catch (err: any) {
       setError(err.message || 'Could not complete session.');
     } finally {
@@ -221,21 +171,6 @@ export default function FocusPage() {
       setCurrentSession(response.session);
       setSessionState('abandoned');
       setSuccessMessage('Session ended. Better luck next time!');
-
-      // Get the selected task's category
-      const selectedTask = tasks.find((t) => t.id === selectedTaskId);
-
-      const completionPercentage = selectedDuration > 0
-        ? Math.min(100, Math.round((response.elapsedMinutes / selectedDuration) * 100))
-        : 0;
-
-      // CleverTap: track abandonment with elapsed duration and drop-off percentage
-      trackFocusSessionAbandoned({
-        duration: selectedDuration,
-        elapsedMinutes: response.elapsedMinutes,
-        taskCategory: selectedTask?.category,
-        completionPercentage,
-      });
     } catch (err: any) {
       setError(err.message || 'Could not abandon session.');
     } finally {

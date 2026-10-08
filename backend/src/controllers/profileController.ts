@@ -36,7 +36,6 @@ export async function getProfile(req: AuthenticatedRequest, res: Response): Prom
 
 // PUT /api/profile
 // Updates the authenticated user's profile and preferences.
-// This is also where we signal the frontend to update the CleverTap user profile.
 export async function updateProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
 
@@ -84,7 +83,7 @@ export async function updateProfile(req: AuthenticatedRequest, res: Response): P
       },
     });
 
-    // Return the full updated profile so the frontend can update the CleverTap profile
+    // Return the full updated profile and preferences
     res.status(200).json({
       message: 'Profile updated successfully.',
       user: {

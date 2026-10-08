@@ -1,0 +1,9 @@
+{
+  "name": "clevertap-integration-module",
+  "version": "1.0.0",
+  "description": "Standalone CleverTap integration module for FocusFlow (P1-P3). Prepared for future connection.",
+  "main": "web/client.ts",
+  "dependencies": {
+    "clevertap-web-sdk": "^3.0.3"
+  }
+}

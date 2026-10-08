@@ -9,20 +9,11 @@
  * - Edit existing task (inline form)
  * - Mark task as complete
  * - Delete task
- *
- * CleverTap events: Task Created, Task Updated, Task Completed, Task Deleted
  */
 
 import { useState, useEffect } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import { tasksApi, Task, CreateTaskData } from '../../lib/api';
-import {
-  trackTaskCreated,
-  trackTaskCompleted,
-  trackEvent,
-  trackEventWithProperties,
-} from '../../lib/clevertap/client';
-import { CLEVERTAP_EVENTS } from '../../lib/clevertap/events';
 
 const CATEGORIES = ['General', 'Work', 'Study', 'Personal', 'Health', 'Other'];
 const PRIORITIES = ['Low', 'Medium', 'High'];
@@ -66,13 +57,6 @@ export default function TasksPage() {
       const response = await tasksApi.create(formData);
       setTasks((prev) => [response.task, ...prev]);
       setShowCreateForm(false);
-
-      // CleverTap: track task creation with category, priority, and title length
-      trackTaskCreated({
-        category: formData.category || 'General',
-        priority: formData.priority || 'Medium',
-        taskTitleLength: formData.title.length,
-      });
     } catch (err: any) {
       alert(err.message || 'Could not create task.');
     }
@@ -84,27 +68,14 @@ export default function TasksPage() {
       const response = await tasksApi.update(taskId, formData);
       setTasks((prev) => prev.map((t) => (t.id === taskId ? response.task : t)));
       setEditingTaskId(null);
-
-      // CleverTap: track task update
-      trackEventWithProperties(CLEVERTAP_EVENTS.TASK_UPDATED, {
-        Category: formData.category,
-        Priority: formData.priority,
-      });
     } catch (err: any) {
       alert(err.message || 'Could not update task.');
     }
   };
 
   // View a task's details
-  const handleViewTask = (task: Task) => {
-    // CleverTap: track task viewed with category and priority properties
-    trackEventWithProperties(CLEVERTAP_EVENTS.TASK_VIEWED, {
-      'Task ID': task.id,
-      Category: task.category,
-      Priority: task.priority,
-      Title: task.title,
-      Completed: task.completed,
-    });
+  const handleViewTask = (_task: Task) => {
+    // Inspection handler for task card clicks
   };
 
   // Mark a task as completed
@@ -113,49 +84,18 @@ export default function TasksPage() {
       const response = await tasksApi.complete(task.id);
       const updatedTasks = tasks.map((t) => (t.id === task.id ? response.task : t));
       setTasks(updatedTasks);
-
-      // Calculate how long the task took (from creation to completion)
-      const createdAt = new Date(task.createdAt);
-      const completedAt = new Date();
-      const timeTakenMinutes = Math.round(
-        (completedAt.getTime() - createdAt.getTime()) / 1000 / 60
-      );
-
-      // CleverTap: track task completion with category, priority, and time taken
-      trackTaskCompleted({
-        category: task.category,
-        priority: task.priority,
-        timeTaken: timeTakenMinutes,
-      });
-
-      // Track the "first task completed" milestone if applicable
-      if (response.isFirstCompletion) {
-        trackEvent(CLEVERTAP_EVENTS.FIRST_TASK_COMPLETED);
-      }
-
-      // Track Daily Goal Completed milestone if all tasks are finished
-      const remainingIncomplete = updatedTasks.filter((t) => !t.completed);
-      if (remainingIncomplete.length === 0 && updatedTasks.length > 0) {
-        trackEvent(CLEVERTAP_EVENTS.DAILY_GOAL_COMPLETED);
-      }
     } catch (err: any) {
       alert(err.message || 'Could not complete task.');
     }
   };
 
   // Delete a task
-  const handleDeleteTask = async (taskId: number, task: Task) => {
+  const handleDeleteTask = async (taskId: number, _task: Task) => {
     if (!confirm('Are you sure you want to delete this task?')) return;
 
     try {
       await tasksApi.delete(taskId);
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
-
-      // CleverTap: track task deletion
-      trackEventWithProperties(CLEVERTAP_EVENTS.TASK_DELETED, {
-        Category: task.category,
-        Priority: task.priority,
-      });
     } catch (err: any) {
       alert(err.message || 'Could not delete task.');
     }

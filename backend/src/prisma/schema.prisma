@@ -17,8 +17,8 @@ model User {
   name                  String
   email                 String           @unique
   passwordHash          String
-  occupation            String?          // Optional - used for CleverTap profile
-  interests             String?          // Comma-separated - used for CleverTap segmentation
+  occupation            String?          // Optional - user occupation or role
+  interests             String?          // Comma-separated - user interests or skills
   preferredFocusDuration Int             @default(25) // In minutes
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt

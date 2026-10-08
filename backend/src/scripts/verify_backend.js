@@ -39,8 +39,8 @@ async function testFlow() {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      title: 'Complete CleverTap Web SDK Integration',
-      description: 'Setup user profile sync and event tracking',
+      title: 'Complete Full Stack Integration',
+      description: 'Setup core tasks and session flows',
       category: 'Work',
       priority: 'High',
     }),
@@ -107,7 +107,7 @@ async function testFlow() {
     body: JSON.stringify({
       name: 'Alex Developer (Updated)',
       occupation: 'Senior Full Stack Engineer',
-      interests: 'typescript, react, clevertap, nodejs',
+      interests: 'typescript, react, productivity, nodejs',
       preferredFocusDuration: 45,
       notificationsEnabled: true,
       productivityReminders: true,

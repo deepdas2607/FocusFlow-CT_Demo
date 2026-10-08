@@ -11,15 +11,11 @@
  * - Recent focus sessions list
  *
  * No external charting library - we use simple inline bars for weekly activity.
- *
- * CleverTap: tracks Progress Viewed event
  */
 
 import { useState, useEffect } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import { dashboardApi, focusApi, FocusSession } from '../../lib/api';
-import { trackEvent } from '../../lib/clevertap/client';
-import { CLEVERTAP_EVENTS } from '../../lib/clevertap/events';
 
 export default function ProgressPage() {
   const [stats, setStats] = useState({
@@ -49,9 +45,6 @@ export default function ProgressPage() {
         });
 
         setRecentSessions(historyData.sessions);
-
-        // CleverTap: track that the user viewed their progress
-        trackEvent(CLEVERTAP_EVENTS.PROGRESS_VIEWED);
       } catch (err: any) {
         setError(err.message || 'Could not load progress data.');
       } finally {
