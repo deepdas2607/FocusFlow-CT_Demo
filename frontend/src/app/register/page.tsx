@@ -1,10 +1,15 @@
 'use client';
 
 /**
- * Register page - New user account creation.
- *
- * Form fields: Name, Email, Password, Confirm Password
- * On success: saves JWT to localStorage and redirects to dashboard.
+ * FocusFlow Registration Page (app/register/page.tsx)
+ * 
+ * Account Creation Flow:
+ * 1. User inputs Name, Email, Password, and Password Confirmation.
+ * 2. Instant client-side validation performs early checks (non-empty, min 6 characters, matching passwords).
+ * 3. On valid submit, calls POST /api/auth/register via `authApi.register()`.
+ * 4. The backend returns a signed JWT token and user profile.
+ * 5. The JWT token is saved to localStorage (`TOKEN_KEY`), and `setUser()` updates the global AuthContext.
+ * 6. The user is redirected to `/dashboard` immediately without having to perform a separate login step.
  */
 
 import { useState } from 'react';
@@ -17,21 +22,25 @@ export default function RegisterPage() {
   const router = useRouter();
   const { setUser } = useAuth();
 
-  // Form field state
+  // Controlled input states for user registration fields
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // UI state
+  // UI state for loading indicators and validation error feedback
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  /**
+   * Registration form submit handler
+   * Performs client validation then dispatches API request.
+   */
   const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+    event.preventDefault(); // Prevent standard browser full-page submission
     setError('');
 
-    // Client-side validation before sending to the API
+    // Client-side validation: fast feedback before making network request
     if (!name.trim()) {
       setError('Please enter your name.');
       return;
@@ -52,16 +61,16 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      // Call the backend to create the account
+      // 1. Send registration payload to backend Express server
       const response = await authApi.register({ name, email, password });
 
-      // Store the JWT token so the user is logged in immediately
+      // 2. Persist the returned JWT token to browser localStorage
       localStorage.setItem(TOKEN_KEY, response.token);
 
-      // Update the auth context with the new user
+      // 3. Update AuthContext state with newly created user record
       setUser(response.user);
 
-      // Redirect to dashboard on success
+      // 4. Navigate user straight to their newly initialized dashboard
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please try again.');
@@ -69,6 +78,7 @@ export default function RegisterPage() {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex items-center justify-center p-4">

@@ -1,27 +1,34 @@
 'use client';
 
 /**
- * Focus Session page - The core productivity feature.
- *
- * How it works:
- * 1. User selects a task (optional) and a duration (25/45/60 min)
- * 2. User clicks Start - the backend creates a session record
- * 3. A countdown timer runs in the browser
- * 4. User can Pause, Resume, Complete, or Abandon the session
- * 5. On Complete/Abandon, the backend is notified
- *
- * NOTE: The timer is client-side only (JavaScript setInterval).
- * The session record in the database tracks start time and status.
- * If the user closes the tab, the session remains "STARTED" in the DB.
- * This is intentional - we keep the backend simple.
+ * FocusFlow Focus Session Page (app/focus/page.tsx)
+ * 
+ * Architecture & Finite State Machine:
+ * The timer operates on a clean state machine:
+ *   [ idle ] ──(start)──> [ running ] <──(resume/pause)──> [ paused ]
+ *                             │                                   │
+ *                             ├──(timer hits 0 or complete)───────┤
+ *                             ▼                                   ▼
+ *                        [ completed ]                       [ abandoned ]
+ * 
+ * Technical Implementation Details:
+ * 1. Client-Side Countdown: Timer runs in-browser via JavaScript `setInterval` ticking once per second.
+ * 2. Stale Closure Prevention: Async callbacks (`handleComplete`) reference `currentSessionRef.current`
+ *    and `isCompletingRef.current` instead of component state to prevent duplicate completion calls or
+ *    stale closures from React effect re-runs.
+ * 3. Auto-Completion: When `secondsRemaining` hits 0 while state is 'running', an effect automatically
+ *    triggers `handleComplete()`, notifying the backend and persisting completed status.
+ * 4. SVG Progress Ring: Uses strokeDasharray & strokeDashoffset geometry to smoothly animate the circular dial.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import { focusApi, tasksApi, Task, FocusSession } from '../../lib/api';
 
+// Possible lifecycle states of a focus session in the UI
 type SessionState = 'idle' | 'running' | 'paused' | 'completed' | 'abandoned';
 
+// Session duration presets available to the user
 const DURATION_OPTIONS = [
   { label: '1 min', value: 1, description: 'Quick Test' },
   { label: '25 min', value: 25, description: 'Pomodoro' },
@@ -35,49 +42,52 @@ export default function FocusPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number>(25);
 
-  // Session state
+  // Session lifecycle state
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [currentSession, setCurrentSession] = useState<FocusSession | null>(null);
 
-  // Refs to prevent stale closures and duplicate completion calls
+  // Mutable refs to prevent stale closures and duplicate completion calls during rapid state transitions
   const currentSessionRef = useRef<FocusSession | null>(null);
   currentSessionRef.current = currentSession;
   const isCompletingRef = useRef(false);
 
-  // Timer state
+  // Timer counter states (in seconds)
   const [secondsRemaining, setSecondsRemaining] = useState(25 * 60);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
-  // Track when the session was last paused (to calculate elapsed time properly)
+  // Track timer intervals and pause timestamps
   const pausedSecondsRef = useRef(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // UI state
+  // UI state for network operations and feedback messages
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Load the user's incomplete tasks for the selector
+  // Load incomplete tasks for the dropdown on mount
   useEffect(() => {
     const loadTasks = async () => {
       try {
         const response = await tasksApi.getAll();
-        // Only show incomplete tasks in the selector
+        // Filter out completed tasks so user only associates active work
         setTasks(response.tasks.filter((t) => !t.completed));
       } catch {
-        // Non-critical - user can still start a session without a task
+        // Non-critical: user can still start an untethered focus session
       }
     };
     loadTasks();
   }, []);
 
-  // Update secondsRemaining when the user picks a different duration (before starting)
+  // Synchronize countdown seconds when user selects a different preset before starting
   useEffect(() => {
     if (sessionState === 'idle') {
       setSecondsRemaining(selectedDuration * 60);
     }
   }, [selectedDuration, sessionState]);
 
+  /**
+   * Helper: Clears the active setInterval timer
+   */
   const stopTimer = useCallback(() => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
@@ -85,9 +95,11 @@ export default function FocusPage() {
     }
   }, []);
 
-  // Timer countdown logic
+  /**
+   * Helper: Initiates a 1000ms countdown interval
+   */
   const startTimer = useCallback(() => {
-    // Clear any existing timer before starting a new one
+    // Clear any existing interval to prevent runaway multiple timers
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
     }
@@ -105,12 +117,15 @@ export default function FocusPage() {
     }, 1000);
   }, []);
 
-  // Cleanup timer on component unmount
+  // Cleanup timer on component unmount to prevent memory leaks
   useEffect(() => {
     return () => stopTimer();
   }, [stopTimer]);
 
-  // Complete the session (user finishes early or timer hits zero)
+  /**
+   * Completes the focus session:
+   * Called either manually by clicking "Complete" or automatically when the timer reaches 0.
+   */
   const handleComplete = useCallback(async () => {
     const session = currentSessionRef.current;
     if (!session || isCompletingRef.current) return;
@@ -131,14 +146,17 @@ export default function FocusPage() {
     }
   }, [stopTimer]);
 
-  // Auto-complete session when timer reaches zero while running
+  // Effect: Auto-trigger completion as soon as timer hits zero while in 'running' state
   useEffect(() => {
     if (sessionState === 'running' && secondsRemaining <= 0 && currentSession && !isCompletingRef.current) {
       handleComplete();
     }
   }, [secondsRemaining, sessionState, currentSession, handleComplete]);
 
-  // Start a new focus session
+  /**
+   * Starts a new session:
+   * Calls POST /api/focus/start, stores the session record, and begins the timer interval.
+   */
   const handleStart = async () => {
     setIsLoading(true);
     setError('');
@@ -163,14 +181,18 @@ export default function FocusPage() {
     }
   };
 
-  // Pause the running timer
+  /**
+   * Pauses the countdown timer
+   */
   const handlePause = () => {
     stopTimer();
     setSessionState('paused');
     pausedSecondsRef.current = secondsElapsed;
   };
 
-  // Resume a paused timer
+  /**
+   * Resumes the paused timer
+   */
   const handleResume = () => {
     setSessionState('running');
     startTimer();

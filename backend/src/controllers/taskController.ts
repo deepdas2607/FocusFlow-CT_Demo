@@ -2,8 +2,16 @@ import { Response } from 'express';
 import prisma from '../prisma/client';
 import { AuthenticatedRequest } from '../middleware/auth';
 
-// GET /api/tasks
-// Returns all tasks belonging to the authenticated user.
+/**
+ * GET /api/tasks
+ * 
+ * Fetches all tasks created by the logged-in user.
+ * 
+ * Security Note (Multi-Tenancy):
+ * Notice the 'where: { userId }' clause. Even though tasks have an auto-incrementing id,
+ * we strictly filter by the authenticated caller's userId to guarantee tenant isolation.
+ * Results are sorted descending by createdAt so newly created tasks appear at the top.
+ */
 export async function getTasks(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
 
@@ -20,8 +28,14 @@ export async function getTasks(req: AuthenticatedRequest, res: Response): Promis
   }
 }
 
-// POST /api/tasks
-// Creates a new task for the authenticated user.
+/**
+ * POST /api/tasks
+ * 
+ * Creates a new task for the authenticated user:
+ * 1. Validates that a non-empty title is supplied.
+ * 2. Defaults category to 'General' and priority to 'Medium' if not specified.
+ * 3. Associates the task with req.user.userId.
+ */
 export async function createTask(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
   const { title, description, category, priority } = req.body;
@@ -52,8 +66,16 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
   }
 }
 
-// PUT /api/tasks/:id
-// Updates an existing task. Only the task owner can update it.
+/**
+ * PUT /api/tasks/:id
+ * 
+ * Updates an existing task.
+ * 
+ * IDOR Prevention:
+ * Before performing the update, we look up the task using both 'id' and 'userId'.
+ * If the task belongs to another user, findFirst returns null and we respond with 404.
+ * This completely prevents users from modifying other people's tasks by guessing task IDs.
+ */
 export async function updateTask(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
   const taskId = parseInt(req.params.id, 10);
@@ -66,7 +88,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
   const { title, description, category, priority } = req.body;
 
   try {
-    // First, check the task exists and belongs to this user
+    // Verify task exists and belongs to the authenticated user
     const existingTask = await prisma.task.findFirst({
       where: { id: taskId, userId },
     });
@@ -96,8 +118,11 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
   }
 }
 
-// DELETE /api/tasks/:id
-// Deletes a task. Only the task owner can delete it.
+/**
+ * DELETE /api/tasks/:id
+ * 
+ * Deletes a task by ID after confirming ownership.
+ */
 export async function deleteTask(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
   const taskId = parseInt(req.params.id, 10);
@@ -108,7 +133,7 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response): Prom
   }
 
   try {
-    // Verify ownership before deleting
+    // Verify ownership before deleting to prevent unauthorized deletions
     const existingTask = await prisma.task.findFirst({
       where: { id: taskId, userId },
     });
@@ -127,8 +152,16 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response): Prom
   }
 }
 
-// POST /api/tasks/:id/complete
-// Marks a task as completed. Records the completion timestamp.
+/**
+ * POST /api/tasks/:id/complete
+ * 
+ * Marks a task as completed and timestamps the completion.
+ * 
+ * Milestone Detection:
+ * Counts total completed tasks by this user. If totalCompleted === 1,
+ * flags 'isFirstCompletion: true' in the response so the UI or event trackers
+ * can trigger celebratory badges or milestone campaigns.
+ */
 export async function completeTask(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
   const taskId = parseInt(req.params.id, 10);
@@ -170,11 +203,12 @@ export async function completeTask(req: AuthenticatedRequest, res: Response): Pr
       message: 'Task marked as complete.',
       task: completedTask,
       totalTasksCompleted: totalCompleted,
-      isFirstCompletion: totalCompleted === 1, // Frontend uses this for milestone tracking
+      isFirstCompletion: totalCompleted === 1, // Milestone flag
     });
   } catch (error) {
     console.error('Error completing task:', error);
     res.status(500).json({ error: 'Could not complete task.' });
   }
 }
+
 

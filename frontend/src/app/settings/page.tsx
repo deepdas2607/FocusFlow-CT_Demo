@@ -1,7 +1,20 @@
 'use client';
 
 /**
- * Settings / Profile page - Manages user profile, preferences, and privacy consent.
+ * FocusFlow Settings & Profile Page (app/settings/page.tsx)
+ * 
+ * Features & Architecture:
+ * 1. Two-Way State Synchronization:
+ *    On mount or when AuthContext `user` updates, `useEffect` synchronizes both profile attributes
+ *    (name, occupation, interests, preferred focus duration) and notification booleans into local React state.
+ * 2. Profile & Preferences Persistence:
+ *    On submit, calls PUT /api/profile via `profileApi.update()`.
+ *    Upon a successful response, updates global AuthContext state via `setUser(response.user)`,
+ *    ensuring the sidebar and greeting reflect changes instantly across the entire SPA.
+ * 3. Privacy & GDPR Compliance:
+ *    Offers explicit controls for marketing tips consent and analytics opt-outs.
+ * 4. Accessible UI Components:
+ *    Custom `ToggleRow` uses standard ARIA attributes (`role="switch"`, `aria-checked`) for accessibility.
  */
 
 import { useState, useEffect } from 'react';
@@ -9,6 +22,7 @@ import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../contexts/AuthContext';
 import { profileApi } from '../../lib/api';
 
+// Preset options for default focus session duration
 const DURATION_OPTIONS = [
   { label: '25 minutes (Pomodoro)', value: 25 },
   { label: '45 minutes (Deep work)', value: 45 },
@@ -18,28 +32,28 @@ const DURATION_OPTIONS = [
 export default function SettingsPage() {
   const { user, setUser } = useAuth();
 
-  // Profile form fields
+  // Controlled form state for user personal details
   const [name, setName] = useState('');
   const [occupation, setOccupation] = useState('');
   const [interests, setInterests] = useState('');
   const [preferredFocusDuration, setPreferredFocusDuration] = useState(25);
 
-  // Notification preference fields
+  // Controlled form state for notification preferences
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [productivityReminders, setProductivityReminders] = useState(true);
   const [sessionReminders, setSessionReminders] = useState(true);
   const [weeklySummary, setWeeklySummary] = useState(true);
 
-  // Privacy & Consent state (GDPR)
+  // Privacy & Consent state (GDPR & Data Protection)
   const [analyticsOptOut, setAnalyticsOptOut] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(true);
 
-  // UI state
+  // UI state for async submission and feedback banners
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [error, setError] = useState('');
 
-  // Populate form fields
+  // Hydrate local form state whenever the AuthContext user object changes
   useEffect(() => {
     if (user) {
       setName(user.name || '');
@@ -53,6 +67,9 @@ export default function SettingsPage() {
     }
   }, [user]);
 
+  /**
+   * Saves updated profile and preferences to backend
+   */
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     setIsLoading(true);
@@ -68,6 +85,7 @@ export default function SettingsPage() {
     try {
       const response = await profileApi.update({
         name: name.trim(),
+
         occupation: occupation.trim(),
         interests: interests.trim(),
         preferredFocusDuration,

@@ -2,8 +2,15 @@ import { Response } from 'express';
 import prisma from '../prisma/client';
 import { AuthenticatedRequest } from '../middleware/auth';
 
-// POST /api/focus/start
-// Creates a new focus session record in the database.
+/**
+ * POST /api/focus/start
+ * 
+ * Initiates a new focus session for the authenticated user:
+ * 1. Validates that the requested duration is one of the allowed presets [1, 5, 25, 45, 60] minutes.
+ * 2. If a taskId is associated with the session, verifies the task exists and belongs to the user.
+ * 3. Creates a new FocusSession record with status: 'STARTED'.
+ * 4. Counts prior sessions to determine if 'isFirstSession: true' milestone applies.
+ */
 export async function startFocusSession(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
   const { taskId, duration } = req.body;
@@ -63,8 +70,16 @@ export async function startFocusSession(req: AuthenticatedRequest, res: Response
   }
 }
 
-// POST /api/focus/:id/complete
-// Marks a focus session as completed.
+/**
+ * POST /api/focus/:id/complete
+ * 
+ * Finalizes a focus session as successfully completed:
+ * 1. Checks that session exists, belongs to caller, and is currently in 'STARTED' status.
+ * 2. Computes the real elapsed minutes between startedAt and now.
+ * 3. Evaluates 'completedOnTime': true if user completed within a 2-minute grace window of the goal.
+ * 4. Updates session status to 'COMPLETED' with completedAt timestamp.
+ * 5. Returns total completed session count for streak and analytics computation.
+ */
 export async function completeFocusSession(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
   const sessionId = parseInt(req.params.id, 10);
@@ -127,8 +142,14 @@ export async function completeFocusSession(req: AuthenticatedRequest, res: Respo
   }
 }
 
-// POST /api/focus/:id/abandon
-// Marks a focus session as abandoned (user quit early).
+/**
+ * POST /api/focus/:id/abandon
+ * 
+ * Records that a user stopped a session before completing the timer:
+ * 1. Checks that session is currently in 'STARTED' status.
+ * 2. Computes the partial elapsed time spent before quitting.
+ * 3. Updates session status to 'ABANDONED'.
+ */
 export async function abandonFocusSession(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
   const sessionId = parseInt(req.params.id, 10);
@@ -179,8 +200,12 @@ export async function abandonFocusSession(req: AuthenticatedRequest, res: Respon
   }
 }
 
-// GET /api/focus/history
-// Returns the user's past focus sessions.
+/**
+ * GET /api/focus/history
+ * 
+ * Fetches the user's historical focus sessions (up to 50 most recent),
+ * ordered chronologically descending (newest first).
+ */
 export async function getFocusHistory(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
 
@@ -198,4 +223,5 @@ export async function getFocusHistory(req: AuthenticatedRequest, res: Response):
     res.status(500).json({ error: 'Could not fetch focus session history.' });
   }
 }
+
 

@@ -2,8 +2,12 @@ import { Response } from 'express';
 import prisma from '../prisma/client';
 import { AuthenticatedRequest } from '../middleware/auth';
 
-// GET /api/profile
-// Returns the authenticated user's full profile including preferences.
+/**
+ * GET /api/profile
+ * 
+ * Fetches the user's complete profile record and related preferences.
+ * Uses Prisma's explicit select projection to exclude the sensitive passwordHash.
+ */
 export async function getProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
 
@@ -34,8 +38,21 @@ export async function getProfile(req: AuthenticatedRequest, res: Response): Prom
   }
 }
 
-// PUT /api/profile
-// Updates the authenticated user's profile and preferences.
+/**
+ * PUT /api/profile
+ * 
+ * Updates the user's profile information and notification/privacy preferences:
+ * 
+ * Partial Update Mechanics in Prisma:
+ * In Prisma, setting a field to 'undefined' tells Prisma to ignore that field and leave
+ * the database column untouched. Setting it to 'null' actively clears the column.
+ * We use '|| undefined' so any field not provided in req.body preserves its existing value.
+ * 
+ * Upsert Pattern:
+ * We use `userPreferences.upsert()` so that if the user record exists but their preferences
+ * record was somehow missing or corrupted, Prisma will automatically insert a row with defaults
+ * instead of failing with a foreign key or record-not-found error.
+ */
 export async function updateProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user!.userId;
 
@@ -51,7 +68,7 @@ export async function updateProfile(req: AuthenticatedRequest, res: Response): P
   } = req.body;
 
   try {
-    // Update the user's personal information
+    // 1. Update personal details on the User model
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
@@ -64,8 +81,7 @@ export async function updateProfile(req: AuthenticatedRequest, res: Response): P
       },
     });
 
-    // Update user preferences if any preference fields were sent
-    // We use upsert in case preferences weren't created yet (defensive coding)
+    // 2. Upsert the UserPreferences record (create if absent, update if present)
     const updatedPreferences = await prisma.userPreferences.upsert({
       where: { userId },
       update: {
@@ -83,7 +99,7 @@ export async function updateProfile(req: AuthenticatedRequest, res: Response): P
       },
     });
 
-    // Return the full updated profile and preferences
+    // 3. Return the consolidated updated profile
     res.status(200).json({
       message: 'Profile updated successfully.',
       user: {
@@ -101,4 +117,5 @@ export async function updateProfile(req: AuthenticatedRequest, res: Response): P
     res.status(500).json({ error: 'Could not update profile.' });
   }
 }
+
 

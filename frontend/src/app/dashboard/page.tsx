@@ -1,13 +1,16 @@
 'use client';
 
 /**
- * Dashboard page - The main home screen after login.
- *
- * Shows:
- * - Greeting with user's name
- * - Today's stats (tasks completed, streak, focus time)
- * - Today's task list
- * - Quick button to start a focus session
+ * FocusFlow Dashboard Page (app/dashboard/page.tsx)
+ * 
+ * Architecture & Features:
+ * 1. Single API Fetch: On component mount (`useEffect`), calls GET /api/dashboard via `dashboardApi.getData()`.
+ *    This receives today's tasks, streak count, completed counts, and total focus minutes in one trip.
+ * 2. Personalization: Displays a time-aware greeting ('Good morning' / 'Good afternoon' / 'Good evening')
+ *    and the user's first name.
+ * 3. Quick Actions: Provides immediate navigation to launch a focus session timer (`/focus`)
+ *    or jump to full task management (`/tasks`).
+ * 4. Responsive UI: Renders summary metric cards in a grid and a list of today's highest priority tasks.
  */
 
 import { useState, useEffect } from 'react';
@@ -20,13 +23,14 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const router = useRouter();
 
-  // Dashboard data from the API
+  // Stores aggregated statistics received from the backend
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
 
-  // UI states
+  // UI state for loading indicators and error banners
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Fetch dashboard data once when the component mounts
   useEffect(() => {
     const loadDashboard = async () => {
       try {
@@ -42,7 +46,13 @@ export default function DashboardPage() {
     loadDashboard();
   }, []);
 
-  // Format minutes as "Xh Ym" or "Xm"
+  /**
+   * Helper: formatFocusTime
+   * Formats raw minutes into a clean human-readable string:
+   * - 45 -> "45m"
+   * - 120 -> "2h"
+   * - 135 -> "2h 15m"
+   */
   const formatFocusTime = (minutes: number): string => {
     if (minutes < 60) return `${minutes}m`;
     const hours = Math.floor(minutes / 60);
@@ -50,13 +60,17 @@ export default function DashboardPage() {
     return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
   };
 
-  // Get a time-appropriate greeting
+  /**
+   * Helper: getGreeting
+   * Computes a natural greeting string based on the user's local clock hour.
+   */
   const getGreeting = (): string => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
   };
+
 
   return (
     <AppLayout>

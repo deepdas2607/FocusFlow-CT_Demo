@@ -33,3 +33,7 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Documentation & Prompts (Local Study Material)
+docs/
+Prompt.md

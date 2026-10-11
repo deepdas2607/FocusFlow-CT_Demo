@@ -1,16 +1,18 @@
 'use client';
 
 /**
- * Progress page - Shows the user's productivity statistics over time.
- *
- * Displays:
- * - Total tasks completed
- * - Total focus sessions
- * - Total focus time
- * - Current streak
- * - Recent focus sessions list
- *
- * No external charting library - we use simple inline bars for weekly activity.
+ * FocusFlow Progress & Analytics Page (app/progress/page.tsx)
+ * 
+ * Features & Technical Mechanics:
+ * 1. Parallel API Orchestration:
+ *    Uses `Promise.all([dashboardApi.getData(), focusApi.getHistory()])` to query both the summary
+ *    metrics and the granular history concurrently, cutting time-to-first-render in half.
+ * 2. Pure CSS Activity Histogram:
+ *    Rather than bundling heavy third-party charting libraries (Chart.js, Recharts, D3),
+ *    this page computes a 7-day rolling histogram natively using JavaScript date grouping
+ *    and pure Tailwind CSS flexbox column heights.
+ * 3. Recent Sessions History Table:
+ *    Renders the last 10 completed or abandoned sessions with formatted timestamps and color badges.
  */
 
 import { useState, useEffect } from 'react';
@@ -18,20 +20,26 @@ import AppLayout from '../../components/layout/AppLayout';
 import { dashboardApi, focusApi, FocusSession } from '../../lib/api';
 
 export default function ProgressPage() {
+  // Aggregate productivity counters
   const [stats, setStats] = useState({
     totalTasksCompleted: 0,
     totalFocusSessions: 0,
     totalFocusMinutes: 0,
     currentStreak: 0,
   });
+
+  // Detailed history list of past focus sessions
   const [recentSessions, setRecentSessions] = useState<FocusSession[]>([]);
+  
+  // UI states for loading spinner and error handling
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Fetch progress data on mount
   useEffect(() => {
     const loadProgressData = async () => {
       try {
-        // Load dashboard stats and focus history in parallel
+        // Query both endpoints concurrently to avoid waterfall latency
         const [dashboardData, historyData] = await Promise.all([
           dashboardApi.getData(),
           focusApi.getHistory(),
@@ -55,7 +63,10 @@ export default function ProgressPage() {
     loadProgressData();
   }, []);
 
-  // Format minutes as "Xh Ym"
+  /**
+   * Helper: formatMinutes
+   * Converts integer minutes into hours and minutes display string.
+   */
   const formatMinutes = (minutes: number): string => {
     if (minutes === 0) return '0m';
     if (minutes < 60) return `${minutes}m`;
@@ -64,7 +75,10 @@ export default function ProgressPage() {
     return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
   };
 
-  // Format a date string as "Oct 7, 2026"
+  /**
+   * Helper: formatDate
+   * Converts ISO timestamp string into human-friendly format (e.g. "Oct 11, 2026").
+   */
   const formatDate = (dateString: string): string => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
@@ -73,7 +87,10 @@ export default function ProgressPage() {
     });
   };
 
-  // Get the weekly activity data (last 7 days of sessions)
+  /**
+   * Helper: getWeeklyActivity
+   * Generates a 7-day array counting completed sessions for each day from (today - 6) to today.
+   */
   const getWeeklyActivity = (): { day: string; count: number }[] => {
     const days = [];
     for (let i = 6; i >= 0; i--) {
@@ -82,7 +99,7 @@ export default function ProgressPage() {
       const dateStr = date.toISOString().split('T')[0];
       const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
 
-      // Count completed sessions on this day
+      // Count sessions completed on this specific calendar date
       const count = recentSessions.filter((session) => {
         if (session.status !== 'COMPLETED' || !session.completedAt) return false;
         const sessionDate = new Date(session.completedAt).toISOString().split('T')[0];

@@ -1,8 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-// Extend the Express Request type so we can attach the decoded user to it.
-// This allows downstream route handlers to access req.user without TypeScript errors.
+// =========================================================================
+// TYPESCRIPT INTERFACE EXTENSION
+// =========================================================================
+// Standard Express Request objects do not have a 'user' property.
+// By extending Request into AuthenticatedRequest, TypeScript knows that after
+// requireAuth executes successfully, downstream controllers can safely access
+// req.user.userId and req.user.email without TypeScript type errors.
 export interface AuthenticatedRequest extends Request {
   user?: {
     userId: number;
@@ -10,24 +15,33 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-// This middleware runs before any protected route handler.
-// It checks whether the incoming request has a valid JWT token.
+// =========================================================================
+// AUTHENTICATION GUARD MIDDLEWARE
+// =========================================================================
+// How it works:
+// 1. Intercepts incoming requests before they reach the controller.
+// 2. Checks the 'Authorization' header for the pattern 'Bearer <token>'.
+// 3. Verifies the cryptographic signature of the token against our secret key.
+// 4. If valid, attaches the decoded user data to req.user and calls next().
+// 5. If missing or invalid, halts execution immediately with an HTTP 401 error.
 export function requireAuth(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): void {
-  // The client sends the token in the Authorization header as: Bearer <token>
+  // Step 1: Read the Authorization header sent by the client
   const authHeader = req.headers.authorization;
 
+  // Step 2: Validate the format — must exist and start with 'Bearer '
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({ error: 'No token provided. Please log in.' });
     return;
   }
 
-  // Extract the token by removing the "Bearer " prefix
+  // Step 3: Extract the raw token string (everything after 'Bearer ')
   const token = authHeader.split(' ')[1];
 
+  // Step 4: Ensure the server has a JWT_SECRET configured in environment variables
   const jwtSecret = process.env.JWT_SECRET;
 
   if (!jwtSecret) {
@@ -36,16 +50,17 @@ export function requireAuth(
   }
 
   try {
-    // Verify the token and decode its payload
+    // Step 5: Verify the token signature and expiration date
+    // If the token was tampered with or has expired, jwt.verify throws an exception
     const decoded = jwt.verify(token, jwtSecret) as { userId: number; email: string };
 
-    // Attach the decoded user info to the request so route handlers can use it
+    // Step 6: Attach decoded user credentials to the request for controllers to use
     req.user = decoded;
 
-    // Call next() to pass control to the actual route handler
+    // Step 7: Call next() to allow execution to proceed to the controller
     next();
   } catch (error) {
-    // Token is invalid or expired
+    // Token is expired, malformed, or signed with an incorrect secret
     res.status(401).json({ error: 'Invalid or expired token. Please log in again.' });
   }
 }

@@ -5,11 +5,22 @@ import prisma from '../prisma/client';
 import { AuthenticatedRequest } from '../middleware/auth';
 
 // Number of salt rounds for bcrypt hashing.
-// Higher = more secure but slower. 10 is a good balance.
+// Salt rounds determine the computational difficulty (work factor) of calculating the hash.
+// 10 rounds means 2^10 (1024) iterations, balancing robust brute-force defense with fast server response (~100ms).
 const SALT_ROUNDS = 10;
 
-// POST /api/auth/register
-// Creates a new user account.
+/**
+ * POST /api/auth/register
+ * 
+ * Creates a brand new user account in FocusFlow:
+ * 1. Validates presence of name, email, and password (min 6 chars).
+ * 2. Normalizes email to lowercase and trims whitespace to prevent duplicate registration tricks.
+ * 3. Checks if an account with that email already exists in PostgreSQL (returns 409 Conflict if so).
+ * 4. Hashes the plaintext password with bcrypt (SALT_ROUNDS = 10). We NEVER store plaintext passwords.
+ * 5. Inserts the user and creates default preferences in a single relational transaction via Prisma.
+ * 6. Generates a signed JWT token containing userId and email so the user is instantly authenticated.
+ * 7. Returns 201 Created with the JWT and safe user object (excluding passwordHash).
+ */
 export async function register(req: Request, res: Response): Promise<void> {
   const { name, email, password } = req.body;
 
@@ -26,6 +37,7 @@ export async function register(req: Request, res: Response): Promise<void> {
 
   try {
     // Check if a user with this email already exists
+    // Case-insensitive lookup via normalized email
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
     });
@@ -36,16 +48,16 @@ export async function register(req: Request, res: Response): Promise<void> {
     }
 
     // Hash the password before storing it in the database
-    // We NEVER store plain-text passwords
+    // Salt is generated automatically and embedded in the returned bcrypt hash string
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // Create the user record in the database
+    // Create the user record in the database along with default notification preferences
     const newUser = await prisma.user.create({
       data: {
         name: name.trim(),
         email: email.toLowerCase().trim(),
         passwordHash,
-        // Create default preferences for the new user at the same time
+        // Nested relation write: Prisma creates the UserPreferences row linked to this user's id
         preferences: {
           create: {
             notificationsEnabled: true,
@@ -55,7 +67,7 @@ export async function register(req: Request, res: Response): Promise<void> {
           },
         },
       },
-      // Only return the fields we need - never return passwordHash
+      // Explicit projection: Select only safe fields to return, guaranteeing passwordHash is never leaked
       select: {
         id: true,
         name: true,
@@ -82,8 +94,18 @@ export async function register(req: Request, res: Response): Promise<void> {
   }
 }
 
-// POST /api/auth/login
-// Authenticates an existing user and returns a JWT.
+/**
+ * POST /api/auth/login
+ * 
+ * Authenticates an existing user and issues a fresh JWT:
+ * 1. Validates that email and password are provided.
+ * 2. Looks up the user record by normalized lowercase email.
+ * 3. Compares the supplied password against the stored bcrypt hash using bcrypt.compare().
+ *    Notice that if the user does NOT exist or the password does NOT match, we return the
+ *    identical status code (401) and error message ('Invalid email or password.').
+ *    This prevents "Account Enumeration Attacks" where attackers probe which emails are registered.
+ * 4. Signs and returns a 7-day JWT along with the user profile (destructuring away passwordHash).
+ */
 export async function login(req: Request, res: Response): Promise<void> {
   const { email, password } = req.body;
 
@@ -93,19 +115,19 @@ export async function login(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    // Find the user by email
+    // Look up user by lowercase trimmed email
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
       include: { preferences: true },
     });
 
     if (!user) {
-      // Use a generic error message so we don't reveal whether the email exists
+      // Intentionally generic message to avoid leaking whether the email exists
       res.status(401).json({ error: 'Invalid email or password.' });
       return;
     }
 
-    // Compare the provided password with the stored hash
+    // Compare the plaintext candidate password with the stored bcrypt hash
     const passwordMatches = await bcrypt.compare(password, user.passwordHash);
 
     if (!passwordMatches) {
@@ -113,10 +135,10 @@ export async function login(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Generate a JWT token for this user
+    // Generate a fresh JWT token
     const token = generateToken(user.id, user.email);
 
-    // Return user data without the password hash
+    // Destructure out passwordHash so it is omitted from the JSON response
     const { passwordHash, ...userWithoutPassword } = user;
 
     res.status(200).json({
@@ -130,9 +152,14 @@ export async function login(req: Request, res: Response): Promise<void> {
   }
 }
 
-// GET /api/auth/me
-// Returns the currently authenticated user's data.
-// This is useful for the frontend to restore session after page refresh.
+/**
+ * GET /api/auth/me
+ * 
+ * Returns the currently authenticated user's profile and preferences.
+ * Protected by `requireAuth` middleware, which attaches `req.user.userId`.
+ * The frontend calls this endpoint on startup to validate its cached localStorage token
+ * and reconstruct the React authentication state without requiring the user to re-login.
+ */
 export async function getMe(req: AuthenticatedRequest, res: Response): Promise<void> {
   const userId = req.user?.userId;
 
@@ -142,6 +169,7 @@ export async function getMe(req: AuthenticatedRequest, res: Response): Promise<v
   }
 
   try {
+    // Fetch profile and preferences by primary key
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -168,9 +196,15 @@ export async function getMe(req: AuthenticatedRequest, res: Response): Promise<v
   }
 }
 
-// Helper function: creates a signed JWT token.
-// The token contains userId and email as the payload.
-// It expires in 7 days so users stay logged in.
+/**
+ * Helper: generateToken
+ * 
+ * Signs a JSON Web Token (JWT) using HMAC SHA-256 (HS256) with the secret key in process.env.JWT_SECRET.
+ * Payload includes:
+ * - userId: database primary key of the user (used to identify caller in requireAuth)
+ * - email: user's email address
+ * Expiration is set to 7 days ('7d') so users stay comfortably logged in across browser restarts.
+ */
 function generateToken(userId: number, email: string): string {
   const jwtSecret = process.env.JWT_SECRET;
 
@@ -184,4 +218,5 @@ function generateToken(userId: number, email: string): string {
     { expiresIn: '7d' }
   );
 }
+
 

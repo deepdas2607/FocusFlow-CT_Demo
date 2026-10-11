@@ -1,43 +1,57 @@
 'use client';
 
 /**
- * Tasks page - Full task management interface.
- *
- * Features:
- * - View all tasks with filtering
- * - Create new task (inline form)
- * - Edit existing task (inline form)
- * - Mark task as complete
- * - Delete task
+ * FocusFlow Tasks Management Page (app/tasks/page.tsx)
+ * 
+ * Features & State Management:
+ * 1. CRUD Operations:
+ *    - Read: Fetches user's tasks on mount via GET /api/tasks (`tasksApi.getAll()`).
+ *    - Create: Opens inline form, calls POST /api/tasks, prepends new task to state via `[newTask, ...prev]`.
+ *    - Update: Inline editing form updates specific task in-place via `tasks.map()`.
+ *    - Complete: Marks task finished via POST /api/tasks/:id/complete, updating `completed` and `completedAt`.
+ *    - Delete: Prompts confirmation and removes task from state via `tasks.filter()`.
+ * 2. Client-Side Filtering:
+ *    - Users can toggle between 'all', 'active', and 'completed' views without re-fetching from the server.
+ * 3. Immutable State Patterns:
+ *    - Always produces new arrays/objects rather than mutating state directly, ensuring predictable React re-renders.
  */
 
 import { useState, useEffect } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import { tasksApi, Task, CreateTaskData } from '../../lib/api';
 
+// Predefined task categorization options
 const CATEGORIES = ['General', 'Work', 'Study', 'Personal', 'Health', 'Other'];
 const PRIORITIES = ['Low', 'Medium', 'High'];
 
-// Filter options for the task list
+// Filter options for the task list view
 type FilterOption = 'all' | 'active' | 'completed';
 
 export default function TasksPage() {
+  // State storing the full list of tasks fetched from the database
   const [tasks, setTasks] = useState<Task[]>([]);
+  
+  // Current active filter tab ('all' | 'active' | 'completed')
   const [filter, setFilter] = useState<FilterOption>('all');
+  
+  // UI states for loading spinner and error message
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Controls whether the "create task" form is visible
+  // Toggles visibility of the "New Task" form
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  // Holds the ID of the task currently being edited (null = not editing)
+  // Holds the ID of the task currently being edited in-line (null when no task is being edited)
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
 
-  // Load tasks on mount
+  // Fetch tasks on initial page mount
   useEffect(() => {
     loadTasks();
   }, []);
 
+  /**
+   * Loads all tasks belonging to the authenticated user from the backend
+   */
   const loadTasks = async () => {
     setIsLoading(true);
     setError('');
@@ -51,10 +65,13 @@ export default function TasksPage() {
     }
   };
 
-  // Create a new task
+  /**
+   * Creates a new task and optimistically prepends it to the top of the task list
+   */
   const handleCreateTask = async (formData: CreateTaskData) => {
     try {
       const response = await tasksApi.create(formData);
+      // Prepend newly created task so it appears immediately at the top
       setTasks((prev) => [response.task, ...prev]);
       setShowCreateForm(false);
     } catch (err: any) {
@@ -62,7 +79,9 @@ export default function TasksPage() {
     }
   };
 
-  // Update an existing task
+  /**
+   * Updates an existing task by ID and replaces the updated item in state
+   */
   const handleUpdateTask = async (taskId: number, formData: Partial<CreateTaskData>) => {
     try {
       const response = await tasksApi.update(taskId, formData);
@@ -73,12 +92,16 @@ export default function TasksPage() {
     }
   };
 
-  // View a task's details
+  /**
+   * Inspection handler when a task card is clicked
+   */
   const handleViewTask = (_task: Task) => {
-    // Inspection handler for task card clicks
+    // Handler for task card click inspection
   };
 
-  // Mark a task as completed
+  /**
+   * Marks a task as completed and updates its status in the list
+   */
   const handleCompleteTask = async (task: Task) => {
     try {
       const response = await tasksApi.complete(task.id);
@@ -89,24 +112,30 @@ export default function TasksPage() {
     }
   };
 
-  // Delete a task
+  /**
+   * Deletes a task from the database and removes it from local state
+   */
   const handleDeleteTask = async (taskId: number, _task: Task) => {
     if (!confirm('Are you sure you want to delete this task?')) return;
 
     try {
       await tasksApi.delete(taskId);
+      // Filter out deleted task from local state
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
     } catch (err: any) {
       alert(err.message || 'Could not delete task.');
     }
   };
 
-  // Apply the current filter to the task list
+  /**
+   * Computes the subset of tasks matching the currently selected filter tab
+   */
   const filteredTasks = tasks.filter((task) => {
     if (filter === 'active') return !task.completed;
     if (filter === 'completed') return task.completed;
     return true; // 'all'
   });
+
 
   return (
     <AppLayout>

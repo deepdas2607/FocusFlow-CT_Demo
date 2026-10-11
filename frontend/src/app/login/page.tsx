@@ -1,9 +1,21 @@
 'use client';
 
 /**
- * Login page - existing user authentication.
- *
- * On success: saves JWT to localStorage and redirects to dashboard.
+ * FocusFlow Login Page (app/login/page.tsx)
+ * 
+ * Next.js Client Component Architecture:
+ * - We declare `'use client';` at the top because this component requires browser-side interactivity:
+ *   managing form inputs (`useState`), handling submit events (`onSubmit`), and client-side
+ *   route transitions (`useRouter`).
+ * 
+ * Authentication Flow:
+ * 1. User enters email and password into controlled inputs.
+ * 2. On submit, default browser form refresh is prevented (`event.preventDefault()`).
+ * 3. `login(email, password)` from AuthContext is invoked:
+ *    - Sends POST /api/auth/login to Express backend.
+ *    - Stores JWT token in localStorage (`focusflow_token`).
+ *    - Updates React AuthContext state with user profile.
+ * 4. User is redirected to `/dashboard` via `router.push()`.
  */
 
 import { useState } from 'react';
@@ -15,18 +27,23 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
 
-  // Form field state
+  // Controlled form state for user credentials
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // UI state
+  // UI state for loading spinner and error alerts
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  /**
+   * Form submission handler
+   * Validates non-empty input and calls AuthContext login function.
+   */
   const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+    event.preventDefault(); // Prevent full page reload
     setError('');
 
+    // Pre-flight validation
     if (!email.trim() || !password) {
       setError('Please enter your email and password.');
       return;
@@ -35,17 +52,19 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // The login function is provided by AuthContext.
-      // It calls the API, saves the token, and updates user state.
+      // AuthContext handles HTTP request, localStorage persistence, and user state
       await login(email, password);
 
+      // Programmatic navigation to dashboard upon successful login
       router.push('/dashboard');
     } catch (err: any) {
+      // Surface user-friendly error message from server
       setError(err.message || 'Login failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex items-center justify-center p-4">
