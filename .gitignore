@@ -37,3 +37,7 @@ yarn-error.log*
 # Documentation & Prompts (Local Study Material)
 docs/
 Prompt.md
+
+# Agent customizations (Local / Global symlink)
+.agents
+.agents/
