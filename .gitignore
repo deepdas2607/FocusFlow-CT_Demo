@@ -19,6 +19,8 @@ backend/dist/
 # Local Database data
 backend/.pglite-data/
 .pglite-data/
+*.db
+*.db-journal
 
 # OS files
 .DS_Store
