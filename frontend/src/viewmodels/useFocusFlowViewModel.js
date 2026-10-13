@@ -304,11 +304,21 @@ export function useFocusFlowViewModel() {
     }
   }
 
-  // Manually triggers clevertap.onUserLogin.push
+  // Manually triggers clevertap.onUserLogin.push and tracks a companion event for instant dashboard verification
   function handleManualOnUserLoginPush() {
     const ctLoginPayload = sendCleverTapUserLogin({ ...user, isPro: isProUser }, dashboard);
     addActivityLog('CLEVERTAP_SDK', 'clevertap.onUserLogin.push (Manual)', ctLoginPayload);
-    showStatusToast('Pushed clevertap.onUserLogin.push for ' + user.name);
+
+    // Also track a live event so it appears instantly under Analytics -> Live / Real-Time in the CleverTap dashboard
+    const syncEvent = sendCleverTapEvent('User Profile Identified', {
+      Email: user.email || 'elena.vance@focusflow.app',
+      Name: user.name || 'Elena Vance',
+      Identity: user.email || 'elena.vance@focusflow.app',
+      'Action Source': 'Manual Push onUserLogin Button'
+    });
+    addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("User Profile Identified")', syncEvent);
+
+    showStatusToast(`Identified ${user.name} (${user.email}) in CleverTap`);
   }
 
   // Manually triggers clevertap.profile.push

@@ -93,6 +93,13 @@ export function initializeCleverTapSdk(customConfig = {}) {
       );
     }
 
+    // Enable fetch API so network calls use modern fetch() and appear in Network -> Fetch/XHR tab
+    try {
+      clevertap.enableFetchApi = true;
+    } catch {
+      // Ignore if read-only
+    }
+
     // Set SDK console log level (0 = off, 1 = errors, 2 = info, 3 = all logs)
     if (typeof clevertap.setLogLevel === 'function') {
       clevertap.setLogLevel(Number(config.logLevel ?? 3));
