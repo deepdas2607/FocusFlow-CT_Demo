@@ -118,9 +118,33 @@ export function initializeCleverTapSdk(customConfig = {}) {
   }
 }
 
+// Helper to safely format Date values into ISO string without crashing if mutated
+function toSafeIsoString(val, fallback = '1998-05-14T00:00:00.000Z') {
+  if (!val) return fallback;
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? fallback : val.toISOString();
+  }
+  if (typeof val === 'string') {
+    if (val.startsWith('$D_')) {
+      const sec = parseInt(val.replace('$D_', ''), 10);
+      return !isNaN(sec) ? new Date(sec * 1000).toISOString() : val;
+    }
+    const parsed = new Date(val);
+    return isNaN(parsed.getTime()) ? val : parsed.toISOString();
+  }
+  if (typeof val === 'number') {
+    return new Date(val).toISOString();
+  }
+  return String(val);
+}
+
 // 2. IDENTIFY USER ON LOGIN / REGISTER (clevertap.onUserLogin.push)
 export function sendCleverTapUserLogin(user, dashboardStats = {}) {
   const clevertap = getCleverTapInstance();
+
+  const rawDob = user.dob ? new Date(user.dob) : new Date('1998-05-14');
+  const validDob = rawDob instanceof Date && !isNaN(rawDob.getTime()) ? rawDob : new Date('1998-05-14');
+  const dobIso = validDob.toISOString();
 
   const sitePayload = {
     Site: {
@@ -129,7 +153,7 @@ export function sendCleverTapUserLogin(user, dashboardStats = {}) {
       Email: user.email || 'elena.vance@focusflow.app',
       Phone: user.phone || '+14155552671',
       Gender: user.gender || 'F',
-      DOB: user.dob ? new Date(user.dob) : new Date('1998-05-14'),
+      DOB: validDob,
       Occupation: user.occupation || 'Senior Product Designer',
       'Focus Goal': user.focusGoal || 'Deep Work',
       'Customer Type': user.isPro ? 'Pro Member' : 'Standard Member',
@@ -148,7 +172,13 @@ export function sendCleverTapUserLogin(user, dashboardStats = {}) {
 
   if (clevertap) {
     try {
-      clevertap.onUserLogin.push(sitePayload);
+      // Pass a clone of Site with fresh Date instances because CleverTap SDK mutates the object in place
+      clevertap.onUserLogin.push({
+        Site: {
+          ...sitePayload.Site,
+          DOB: new Date(validDob.getTime())
+        }
+      });
     } catch (error) {
       console.warn('[CleverTap Web SDK] onUserLogin error:', error);
     }
@@ -159,7 +189,7 @@ export function sendCleverTapUserLogin(user, dashboardStats = {}) {
     payload: {
       Site: {
         ...sitePayload.Site,
-        DOB: sitePayload.Site.DOB.toISOString()
+        DOB: dobIso
       }
     }
   };
@@ -169,12 +199,18 @@ export function sendCleverTapUserLogin(user, dashboardStats = {}) {
 export function sendCleverTapProfileUpdate(user, dashboardStats = {}) {
   const clevertap = getCleverTapInstance();
 
+  const rawDob = user.dob ? new Date(user.dob) : new Date('1998-05-14');
+  const validDob = rawDob instanceof Date && !isNaN(rawDob.getTime()) ? rawDob : new Date('1998-05-14');
+  const dobIso = validDob.toISOString();
+  const lastActiveDate = new Date();
+  const lastActiveIso = lastActiveDate.toISOString();
+
   const sitePayload = {
     Site: {
       Name: user.name || 'Elena Vance',
       Email: user.email || 'elena.vance@focusflow.app',
       Phone: user.phone || '+14155552671',
-      DOB: user.dob ? new Date(user.dob) : new Date('1998-05-14'),
+      DOB: validDob,
       Occupation: user.occupation || 'Senior Product Designer',
       'Focus Goal': user.focusGoal || 'Deep Work',
       'Customer Type': user.isPro ? 'Pro Member' : 'Standard Member',
@@ -188,13 +224,20 @@ export function sendCleverTapProfileUpdate(user, dashboardStats = {}) {
       'Current Streak': dashboardStats.currentStreak ?? 0,
       'MSG-email': Boolean(user.preferences?.marketingConsent ?? true),
       'MSG-push': Boolean(user.preferences?.notificationsEnabled ?? true),
-      'Last Active Date': new Date()
+      'Last Active Date': lastActiveDate
     }
   };
 
   if (clevertap) {
     try {
-      clevertap.profile.push(sitePayload);
+      // Pass a clone of Site with fresh Date instances because CleverTap SDK mutates the object in place
+      clevertap.profile.push({
+        Site: {
+          ...sitePayload.Site,
+          DOB: new Date(validDob.getTime()),
+          'Last Active Date': new Date(lastActiveDate.getTime())
+        }
+      });
     } catch (error) {
       console.warn('[CleverTap Web SDK] profile.push error:', error);
     }
@@ -205,8 +248,8 @@ export function sendCleverTapProfileUpdate(user, dashboardStats = {}) {
     payload: {
       Site: {
         ...sitePayload.Site,
-        DOB: sitePayload.Site.DOB.toISOString(),
-        'Last Active Date': sitePayload.Site['Last Active Date'].toISOString()
+        DOB: dobIso,
+        'Last Active Date': lastActiveIso
       }
     }
   };
