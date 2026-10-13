@@ -7,12 +7,12 @@
 // Returns a default user profile object before backend data loads
 export function createEmptyUserModel() {
   return {
-    id: 'usr_demo_101',
-    name: 'Deepkumar Das',
-    email: 'deep@focusflow.app',
-    phone: '+919876543210',
-    dob: '1999-07-26',
-    occupation: 'Software Engineer',
+    id: 'usr_elena_vance',
+    name: 'Elena Vance',
+    email: 'elena.vance@focusflow.app',
+    phone: '+14155552671',
+    dob: '1998-05-14',
+    occupation: 'Senior Product Designer',
     focusGoal: 'Deep Work',
     preferences: {
       notificationsEnabled: true,

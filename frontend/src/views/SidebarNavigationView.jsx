@@ -1,6 +1,6 @@
 // ============================================================================
 // FILE: frontend/src/views/SidebarNavigationView.jsx
-// PURPOSE: MVVM "View" for the FocusFlow left sidebar navigation and top header bar.
+// PURPOSE: MVVM "View" for the FocusFlow left sidebar navigation and status controls.
 // ============================================================================
 
 import React from 'react';
@@ -14,7 +14,9 @@ export default function SidebarNavigationView({
   activityLogsCount,
   isInspectorOpen,
   onToggleInspector,
-  onToggleInbox,
+  clevertapConfig,
+  isProUser,
+  onOpenProModal,
   onSignOut
 }) {
   // Formats remaining timer seconds into MM:SS for the sidebar badge
@@ -127,6 +129,42 @@ export default function SidebarNavigationView({
 
       {/* Bottom Utility Controls & User Account Card */}
       <div className="p-4 border-t border-slate-200 space-y-3 bg-slate-50/50">
+        {/* Pro Membership Banner / Upgrade Trigger */}
+        <div
+          onClick={onOpenProModal}
+          className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+            isProUser
+              ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200 text-amber-900'
+              : 'bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200 hover:border-indigo-300'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold flex items-center gap-1.5">
+              <span>⭐</span> {isProUser ? 'Pro Member' : 'FocusFlow Pro'}
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-indigo-700">
+              {isProUser ? 'ACTIVE' : 'Upgrade'}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+            {isProUser ? 'All Pro focus perks unlocked' : 'Fires CleverTap "Charged" purchase event'}
+          </p>
+        </div>
+
+        {/* CleverTap SDK Connection Status Pill */}
+        <div className="px-3 py-2 rounded-xl bg-white border border-slate-200 flex items-center justify-between text-[11px]">
+          <span className="font-semibold text-slate-600">CleverTap SDK</span>
+          <span
+            className={`font-mono font-bold px-2 py-0.5 rounded ${
+              clevertapConfig?.isOffline
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {clevertapConfig?.isOffline ? 'OFFLINE (Queued)' : `ONLINE (${clevertapConfig?.region || 'eu1'})`}
+          </span>
+        </div>
+
         {/* Live Activity & Payload Inspector Toggle Button */}
         <button
           type="button"
@@ -150,22 +188,6 @@ export default function SidebarNavigationView({
           </span>
         </button>
 
-        {/* Notification Inbox Trigger (#bell-button) */}
-        <button
-          id="bell-button"
-          type="button"
-          onClick={onToggleInbox}
-          className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl text-xs font-semibold bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer"
-        >
-          <span className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            Notifications Inbox
-          </span>
-          <span className="w-2 h-2 rounded-full bg-indigo-600" />
-        </button>
-
         {/* Signed-in User Summary */}
         <div className="pt-2 flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -185,4 +207,3 @@ export default function SidebarNavigationView({
     </aside>
   );
 }
-

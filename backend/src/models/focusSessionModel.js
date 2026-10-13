@@ -98,7 +98,7 @@ function getDashboardMetricsForUser(userId) {
   };
 }
 
-// Seeds two sample focus sessions for the demo user if the table is empty
+// Seeds two sample focus sessions for Elena Vance if the table is empty
 function ensureDemoSessionsExist() {
   const countRow = db.prepare('SELECT COUNT(*) as count FROM focus_sessions').get();
   if (countRow.count === 0) {
@@ -111,7 +111,7 @@ function ensureDemoSessionsExist() {
       VALUES (?, ?, NULL, ?, ?, 'COMPLETED', ?, ?)
     `).run(
       'ses_demo_1',
-      'usr_demo_101',
+      'usr_elena_vance',
       'Review CleverTap Web SDK Quickstart Docs',
       25,
       yesterday,
@@ -123,8 +123,8 @@ function ensureDemoSessionsExist() {
       VALUES (?, ?, NULL, ?, ?, 'COMPLETED', ?, ?)
     `).run(
       'ses_demo_2',
-      'usr_demo_101',
-      'Set up FocusFlow Architecture & SQLite Database',
+      'usr_elena_vance',
+      'Initialize CleverTap Web SDK & SQLite Database',
       45,
       today,
       today

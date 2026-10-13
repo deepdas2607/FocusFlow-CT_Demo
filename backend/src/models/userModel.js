@@ -64,10 +64,10 @@ function createUser(userData) {
     id,
     userData.name.trim(),
     userData.email.trim().toLowerCase(),
-    userData.password || 'focusflow123',
-    userData.phone || '',
-    userData.dob || '1999-07-26',
-    userData.occupation || 'Software Engineer',
+    userData.password || 'password@123',
+    userData.phone || '+14155552671',
+    userData.dob || '1998-05-14',
+    userData.occupation || 'Senior Product Designer',
     userData.focusGoal || 'Deep Work',
     createdAt
   );
@@ -126,18 +126,26 @@ function updateUserProfileAndPreferences(userId, updateData) {
   return findUserById(userId);
 }
 
-// Seeds a default demo user if the SQLite database is completely empty
+// Seeds Elena Vance as the sole default user if needed
 function ensureDemoUserExists() {
-  const countRow = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  if (countRow.count === 0) {
+  const elena = findUserByEmail('elena.vance@focusflow.app');
+  if (!elena) {
+    // Clean old demo data so only Elena Vance exists
+    db.exec(`
+      DELETE FROM user_preferences;
+      DELETE FROM tasks;
+      DELETE FROM focus_sessions;
+      DELETE FROM users;
+    `);
+
     createUser({
-      id: 'usr_demo_101',
-      name: 'Deepkumar Das',
-      email: 'deep@focusflow.app',
-      password: 'password123',
-      phone: '+919876543210',
-      dob: '1999-07-26',
-      occupation: 'Customer Success Engineer',
+      id: 'usr_elena_vance',
+      name: 'Elena Vance',
+      email: 'elena.vance@focusflow.app',
+      password: 'password@123',
+      phone: '+14155552671',
+      dob: '1998-05-14',
+      occupation: 'Senior Product Designer',
       focusGoal: 'Deep Work'
     });
   }

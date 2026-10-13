@@ -4,7 +4,7 @@
 // FILE: frontend/src/app/page.jsx
 // PURPOSE: Main FocusFlow application container connecting the ViewModel
 // (useFocusFlowViewModel) to the modular Views (Sidebar, Dashboard, Tasks,
-// Focus Timer, Progress, Settings, Notification Inbox, and Payload Inspector).
+// Focus Timer, Progress, Settings, Pro Modal, and Live Activity & Payload Inspector).
 // ============================================================================
 
 import React from 'react';
@@ -16,8 +16,8 @@ import TasksView from '../views/TasksView';
 import FocusTimerView from '../views/FocusTimerView';
 import ProgressAnalyticsView from '../views/ProgressAnalyticsView';
 import ProfileSettingsView from '../views/ProfileSettingsView';
+import UpgradeProModalView from '../views/UpgradeProModalView';
 import ActivityLogInspectorView from '../views/ActivityLogInspectorView';
-import WebInboxDrawerView from '../views/WebInboxDrawerView';
 
 export default function FocusFlowAppPage() {
   const vm = useFocusFlowViewModel();
@@ -46,7 +46,9 @@ export default function FocusFlowAppPage() {
         activityLogsCount={vm.activityLogs.length}
         isInspectorOpen={vm.isInspectorOpen}
         onToggleInspector={() => vm.setIsInspectorOpen(!vm.isInspectorOpen)}
-        onToggleInbox={() => vm.setIsInboxOpen(true)}
+        clevertapConfig={vm.clevertapConfig}
+        isProUser={vm.isProUser}
+        onOpenProModal={() => vm.setIsProModalOpen(true)}
         onSignOut={vm.handleSignOut}
       />
 
@@ -122,9 +124,20 @@ export default function FocusFlowAppPage() {
           {vm.activeTab === 'settings' && (
             <ProfileSettingsView
               user={vm.user}
+              clevertapConfig={vm.clevertapConfig}
+              isProUser={vm.isProUser}
+              onOpenProModal={() => vm.setIsProModalOpen(true)}
               onSaveProfile={vm.handleSaveUserProfile}
-              onRequestWebPush={vm.handleRequestWebPush}
-              onPrivacyOptOutChange={vm.handlePrivacyOptOutChange}
+              onManualOnUserLogin={vm.handleManualOnUserLoginPush}
+              onManualProfilePush={vm.handleManualProfilePush}
+              onUpdateCleverTapConfig={vm.handleUpdateCleverTapConfig}
+              onPurchaseProPlan={vm.handlePurchaseProPlan}
+              onSetLocation={vm.handleSetLocation}
+              onIncrementProperty={vm.handleIncrementProperty}
+              onDecrementProperty={vm.handleDecrementProperty}
+              onPrivacyChange={vm.handlePrivacyChange}
+              onDebugLevelChange={vm.handleDebugLevelChange}
+              onToggleOfflineMode={vm.handleToggleOfflineMode}
               onFireCustomEvent={vm.handleFireCustomEvent}
             />
           )}
@@ -139,7 +152,7 @@ export default function FocusFlowAppPage() {
         onClearLogs={vm.handleClearActivityLogs}
       />
 
-      {/* Floating Quick-Open Button when Payload Inspector is closed */}
+      {/* 4. Floating Quick-Open Button when Payload Inspector is closed */}
       {!vm.isInspectorOpen && (
         <button
           type="button"
@@ -154,10 +167,12 @@ export default function FocusFlowAppPage() {
         </button>
       )}
 
-      {/* 4. Slide-over Notification Inbox Drawer (#side-drawer) */}
-      <WebInboxDrawerView
-        isOpen={vm.isInboxOpen}
-        onClose={() => vm.setIsInboxOpen(false)}
+      {/* 5. Upgrade to Pro Modal (Triggers "Charged" Event) */}
+      <UpgradeProModalView
+        isOpen={vm.isProModalOpen}
+        onClose={() => vm.setIsProModalOpen(false)}
+        onPurchase={vm.handlePurchaseProPlan}
+        isProUser={vm.isProUser}
       />
     </div>
   );

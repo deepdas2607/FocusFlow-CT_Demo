@@ -98,30 +98,30 @@ function deleteTaskById(taskId) {
   return existing;
 }
 
-// Seeds initial sample tasks for the demo user if the tasks table is empty
+// Seeds initial sample tasks for Elena Vance if the tasks table is empty
 function ensureDemoTasksExist() {
   const countRow = db.prepare('SELECT COUNT(*) as count FROM tasks').get();
   if (countRow.count === 0) {
     createTask({
-      userId: 'usr_demo_101',
-      title: 'Initialize CleverTap Web SDK & Verify Account ID',
-      description: 'Configure clevertap.init() and inspect network payload to wizrocket.',
+      userId: 'usr_elena_vance',
+      title: 'Initialize CleverTap Web SDK (Account 587-878-Z97Z, EU)',
+      description: 'Configure clevertap.init() and verify network dispatch to CleverTap EU endpoint.',
       category: 'Work',
       priority: 'High',
       estimatedMinutes: 25
     });
     createTask({
-      userId: 'usr_demo_101',
-      title: 'Test onUserLogin vs profile.push Identity Merging',
-      description: 'Verify how Identity, Email, and Phone behave across anonymous and known sessions.',
+      userId: 'usr_elena_vance',
+      title: 'Verify onUserLogin Identity Resolution for Elena Vance',
+      description: 'Verify how Identity, Email, and Phone merge into Elena Vance on the dashboard.',
       category: 'Learning',
       priority: 'High',
       estimatedMinutes: 45
     });
     createTask({
-      userId: 'usr_demo_101',
-      title: 'Complete Daily 25m Deep Work Pomodoro',
-      description: 'Run a focus timer session and inspect the Focus Session Completed event payload.',
+      userId: 'usr_elena_vance',
+      title: 'Test Pro Subscription Purchase with Charged Event',
+      description: 'Trigger the Charged special event with Items and Amount to record customer purchase.',
       category: 'Personal',
       priority: 'Medium',
       estimatedMinutes: 25

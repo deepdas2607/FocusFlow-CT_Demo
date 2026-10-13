@@ -14,12 +14,12 @@ export default function AuthView({
 }) {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [formData, setFormData] = useState({
-    name: '',
-    email: 'deep@focusflow.app',
-    password: 'password123',
-    phone: '+919876543210',
-    dob: '1999-07-26',
-    occupation: 'Software Engineer',
+    name: 'Elena Vance',
+    email: 'elena.vance@focusflow.app',
+    password: 'password@123',
+    phone: '+14155552671',
+    dob: '1998-05-14',
+    occupation: 'Senior Product Designer',
     focusGoal: 'Deep Work'
   });
 
@@ -197,10 +197,10 @@ export default function AuthView({
         <div className="mt-6 pt-5 border-t border-slate-100 text-center">
           <button
             type="button"
-            onClick={() => onLogin({ email: 'deep@focusflow.app', password: 'password123' })}
+            onClick={() => onLogin({ email: 'elena.vance@focusflow.app', password: 'password@123' })}
             className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
           >
-            Instant Sign In with Demo Account (deep@focusflow.app)
+            Instant Sign In as Elena Vance (elena.vance@focusflow.app)
           </button>
         </div>
       </div>

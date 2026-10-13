@@ -1,117 +1,417 @@
 // ============================================================================
 // FILE: frontend/src/services/clevertapSdkService.js
-// PURPOSE: Central wrapper for CleverTap Web SDK methods (Day 1 to Day 30 training).
-// Each function formats the exact CleverTap payload for the Payload Inspector
-// and contains the ready-to-enable clevertap-web-sdk call.
+// PURPOSE: Full CleverTap Web SDK integration adapted from focusflow_int/web/
+// and the Web SDK Quick Start Guide, Web User Profiles, and Web User Events guides.
+// Supports: init, account token, region (eu1), spa, onUserLogin, profile.push,
+// event.push, Charged special event, getLocation, handleIncrement/DecrementValue,
+// setLogLevel, sessionStorage['WZRK_D'], and setOffline.
 // ============================================================================
 
-// Initializes the CleverTap Web SDK with Account ID and Region
-export function initializeCleverTapSdk(accountId, region = 'in1') {
-  // Ready for Day 1 Web SDK Integration:
-  // import clevertap from 'clevertap-web-sdk';
-  // clevertap.init(accountId, region);
-  return {
-    method: 'clevertap.init(accountId, region)',
-    accountId: accountId || 'TEST-ACCOUNT-ID',
-    region,
-    status: 'SDK_STUB_READY'
-  };
+// Canonical event names adapted from integrations/focusflow_int/web/events.ts
+export const CLEVERTAP_EVENTS = {
+  APP_LAUNCHED: 'App Launched',
+  USER_REGISTERED: 'User Registered',
+  USER_LOGGED_IN: 'User Logged In',
+  USER_LOGGED_OUT: 'User Logged Out',
+  DASHBOARD_VIEWED: 'Dashboard Viewed',
+  PROGRESS_VIEWED: 'Progress Viewed',
+  PROFILE_VIEWED: 'Profile Viewed',
+  SETTINGS_UPDATED: 'Settings Updated',
+  TASK_CREATED: 'Task Created',
+  TASK_COMPLETED: 'Task Completed',
+  TASK_DELETED: 'Task Deleted',
+  FOCUS_SESSION_STARTED: 'Focus Session Started',
+  FOCUS_SESSION_COMPLETED: 'Focus Session Completed',
+  FOCUS_SESSION_ABANDONED: 'Focus Session Abandoned',
+  CHARGED: 'Charged',
+  LOCATION_UPDATED: 'Location Updated',
+  CONSENT_UPDATED: 'Consent Updated'
+};
+
+// Default SDK credentials provided by user (Account ID: 587-878-Z97Z, Token: bab-ab5, Region: eu1)
+export const defaultCleverTapConfig = {
+  accountId: process.env.NEXT_PUBLIC_CLEVERTAP_ACCOUNT_ID || '587-878-Z97Z',
+  token: process.env.NEXT_PUBLIC_CLEVERTAP_TOKEN || 'bab-ab5',
+  region: process.env.NEXT_PUBLIC_CLEVERTAP_REGION || 'eu1',
+  targetDomain: process.env.NEXT_PUBLIC_CLEVERTAP_TARGET_DOMAIN || '',
+  logLevel: 3, // 0: off, 1: errors, 2: info + errors, 3: all logs
+  spa: true,
+  optOut: false,
+  useIP: false,
+  isOffline: false,
+  wzrkDebug: true
+};
+
+// Safely loads the clevertap-web-sdk package in the browser (avoids Next.js SSR crashes)
+export function getCleverTapInstance() {
+  if (typeof window === 'undefined') return null;
+
+  if (!window.__clevertapSdkModule) {
+    const sdkModule = require('clevertap-web-sdk');
+    const clevertap = sdkModule.default || sdkModule;
+    window.__clevertapSdkModule = clevertap;
+    window.clevertap = clevertap;
+  }
+
+  return window.__clevertapSdkModule;
 }
 
-// Identifies a user on login or registration using clevertap.onUserLogin.push
-export function sendCleverTapUserLogin(user) {
+// 1. INITIALIZE SDK (clevertap.init + clevertap.account.push + clevertap.spa + privacy + setLogLevel)
+export function initializeCleverTapSdk(customConfig = {}) {
+  const clevertap = getCleverTapInstance();
+  const config = { ...defaultCleverTapConfig, ...customConfig };
+
+  if (!clevertap) {
+    return { status: 'SSR_SKIPPED', config };
+  }
+
+  try {
+    // Enable Single Page Application (SPA) mode
+    clevertap.spa = Boolean(config.spa);
+
+    // Push initial privacy flags
+    clevertap.privacy.push({ optOut: Boolean(config.optOut) });
+    clevertap.privacy.push({ useIP: Boolean(config.useIP) });
+
+    // Push account credentials including Project Token if provided
+    if (config.token && config.token.trim() !== '') {
+      clevertap.account.push(
+        { id: config.accountId, token: config.token },
+        config.region,
+        config.targetDomain || undefined
+      );
+    }
+
+    // Initialize with Account ID, Region, and optional Target Domain
+    if (config.targetDomain && config.targetDomain.trim() !== '') {
+      clevertap.init(config.accountId, config.region, config.targetDomain.trim());
+    } else {
+      clevertap.init(config.accountId, config.region);
+    }
+
+    // Set SDK console log level (0 = off, 1 = errors, 2 = info, 3 = all logs)
+    if (typeof clevertap.setLogLevel === 'function') {
+      clevertap.setLogLevel(Number(config.logLevel ?? 3));
+    }
+
+    // Enable or disable verbose browser console debugging
+    if (config.wzrkDebug) {
+      window.sessionStorage['WZRK_D'] = '';
+    } else {
+      delete window.sessionStorage['WZRK_D'];
+    }
+
+    return {
+      method: 'clevertap.init(accountId, region, targetDomain)',
+      accountId: config.accountId,
+      token: config.token || '(not set)',
+      region: config.region,
+      targetDomain: config.targetDomain || 'clevertap-prod.com (default)',
+      spa: clevertap.spa,
+      logLevel: Number(config.logLevel ?? 3),
+      wzrkDebug: Boolean(config.wzrkDebug),
+      privacy: { optOut: Boolean(config.optOut), useIP: Boolean(config.useIP) }
+    };
+  } catch (error) {
+    console.warn('[CleverTap Web SDK] Initialization warning:', error);
+    return { method: 'clevertap.init', error: error.message };
+  }
+}
+
+// 2. IDENTIFY USER ON LOGIN / REGISTER (clevertap.onUserLogin.push)
+export function sendCleverTapUserLogin(user, dashboardStats = {}) {
+  const clevertap = getCleverTapInstance();
+
   const sitePayload = {
     Site: {
-      Name: user.name,
-      Identity: user.id,
-      Email: user.email,
-      Phone: user.phone,
-      DOB: user.dob ? new Date(user.dob) : undefined,
-      Occupation: user.occupation,
-      'Focus Goal': user.focusGoal,
-      'MSG-email': Boolean(user.preferences?.marketingConsent),
-      'MSG-push': Boolean(user.preferences?.notificationsEnabled),
+      Name: user.name || 'Elena Vance',
+      Identity: String(user.id || 'usr_elena_vance'),
+      Email: user.email || 'elena.vance@focusflow.app',
+      Phone: user.phone || '+14155552671',
+      Gender: user.gender || 'F',
+      DOB: user.dob ? new Date(user.dob) : new Date('1998-05-14'),
+      Occupation: user.occupation || 'Senior Product Designer',
+      'Focus Goal': user.focusGoal || 'Deep Work',
+      'Customer Type': user.isPro ? 'Pro Member' : 'Standard Member',
+      'Total Focus Minutes': dashboardStats.totalFocusMinutes ?? 0,
+      'Total Sessions Completed': dashboardStats.totalFocusSessionsCompleted ?? 0,
+      'Total Tasks Completed': dashboardStats.totalTasksCompleted ?? 0,
+      'Current Streak': dashboardStats.currentStreak ?? 0,
+      'MSG-email': Boolean(user.preferences?.marketingConsent ?? true),
+      'MSG-push': Boolean(user.preferences?.notificationsEnabled ?? true),
       'MSG-sms': true,
-      'MSG-whatsapp': true
+      'MSG-whatsapp': true,
+      'category-resubscribe': { email: ['Productivity Tips', 'Weekly Digest'] },
+      'category-unsubscribe': { email: ['Promotions'] }
     }
   };
 
-  // Ready for Day 2 Identity Management:
-  // clevertap.onUserLogin.push(sitePayload);
+  if (clevertap) {
+    try {
+      clevertap.onUserLogin.push(sitePayload);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] onUserLogin error:', error);
+    }
+  }
+
   return {
     method: 'clevertap.onUserLogin.push',
-    payload: sitePayload
+    payload: {
+      Site: {
+        ...sitePayload.Site,
+        DOB: sitePayload.Site.DOB.toISOString()
+      }
+    }
   };
 }
 
-// Updates user profile attributes and messaging flags using clevertap.profile.push
-export function sendCleverTapProfileUpdate(user) {
+// 3. UPDATE USER PROFILE ATTRIBUTES (clevertap.profile.push)
+export function sendCleverTapProfileUpdate(user, dashboardStats = {}) {
+  const clevertap = getCleverTapInstance();
+
   const sitePayload = {
     Site: {
-      Name: user.name,
-      Identity: user.id,
-      Email: user.email,
-      Phone: user.phone,
-      Occupation: user.occupation,
-      'Focus Goal': user.focusGoal,
-      'Notifications Enabled': Boolean(user.preferences?.notificationsEnabled),
-      'Productivity Reminders': Boolean(user.preferences?.productivityReminders),
-      'Session Reminders': Boolean(user.preferences?.sessionReminders),
-      'Weekly Summary': Boolean(user.preferences?.weeklySummary),
-      'MSG-email': Boolean(user.preferences?.marketingConsent),
-      'MSG-push': Boolean(user.preferences?.notificationsEnabled)
+      Name: user.name || 'Elena Vance',
+      Email: user.email || 'elena.vance@focusflow.app',
+      Phone: user.phone || '+14155552671',
+      DOB: user.dob ? new Date(user.dob) : new Date('1998-05-14'),
+      Occupation: user.occupation || 'Senior Product Designer',
+      'Focus Goal': user.focusGoal || 'Deep Work',
+      'Customer Type': user.isPro ? 'Pro Member' : 'Standard Member',
+      'Notifications Enabled': Boolean(user.preferences?.notificationsEnabled ?? true),
+      'Productivity Reminders': Boolean(user.preferences?.productivityReminders ?? true),
+      'Session Reminders': Boolean(user.preferences?.sessionReminders ?? true),
+      'Weekly Summary': Boolean(user.preferences?.weeklySummary ?? true),
+      'Total Focus Minutes': dashboardStats.totalFocusMinutes ?? 0,
+      'Total Sessions Completed': dashboardStats.totalFocusSessionsCompleted ?? 0,
+      'Total Tasks Completed': dashboardStats.totalTasksCompleted ?? 0,
+      'Current Streak': dashboardStats.currentStreak ?? 0,
+      'MSG-email': Boolean(user.preferences?.marketingConsent ?? true),
+      'MSG-push': Boolean(user.preferences?.notificationsEnabled ?? true),
+      'Last Active Date': new Date()
     }
   };
 
-  // Ready for Day 2 Profile Push:
-  // clevertap.profile.push(sitePayload);
+  if (clevertap) {
+    try {
+      clevertap.profile.push(sitePayload);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] profile.push error:', error);
+    }
+  }
+
   return {
     method: 'clevertap.profile.push',
-    payload: sitePayload
+    payload: {
+      Site: {
+        ...sitePayload.Site,
+        DOB: sitePayload.Site.DOB.toISOString(),
+        'Last Active Date': sitePayload.Site['Last Active Date'].toISOString()
+      }
+    }
   };
 }
 
-// Tracks a custom user action or event using clevertap.event.push
-export function sendCleverTapEvent(eventName, eventProperties = {}) {
-  // Ready for Day 3 Custom Event Tracking:
-  // clevertap.event.push(eventName, eventProperties);
+// 4. SET USER LOCATION (clevertap.getLocation(lat, lng))
+export function sendCleverTapLocation(lat = null, lng = null) {
+  const clevertap = getCleverTapInstance();
+  let result = {};
+
+  if (clevertap && typeof clevertap.getLocation === 'function') {
+    try {
+      if (lat !== null && lng !== null) {
+        clevertap.getLocation(Number(lat), Number(lng));
+        result = { mode: 'manual', latitude: Number(lat), longitude: Number(lng) };
+      } else {
+        clevertap.getLocation();
+        result = { mode: 'auto-geolocation' };
+      }
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] getLocation error:', error);
+      result = { error: error.message };
+    }
+  }
+
   return {
-    method: 'clevertap.event.push',
+    method: lat !== null ? `clevertap.getLocation(${lat}, ${lng})` : 'clevertap.getLocation()',
+    details: result
+  };
+}
+
+// 5. INCREMENT / DECREMENT NUMERIC PROFILE PROPERTIES
+export function incrementCleverTapProfileProperty(propName, propValue = 1) {
+  const clevertap = getCleverTapInstance();
+  const numericValue = Number(propValue) || 1;
+
+  if (clevertap && typeof clevertap.handleIncrementValue === 'function') {
+    try {
+      clevertap.handleIncrementValue(propName, numericValue);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] handleIncrementValue error:', error);
+    }
+  }
+
+  return {
+    method: `clevertap.handleIncrementValue("${propName}", ${numericValue})`,
+    property: propName,
+    incrementBy: numericValue
+  };
+}
+
+export function decrementCleverTapProfileProperty(propName, propValue = 1) {
+  const clevertap = getCleverTapInstance();
+  const numericValue = Number(propValue) || 1;
+
+  if (clevertap && typeof clevertap.handleDecrementValue === 'function') {
+    try {
+      clevertap.handleDecrementValue(propName, numericValue);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] handleDecrementValue error:', error);
+    }
+  }
+
+  return {
+    method: `clevertap.handleDecrementValue("${propName}", ${numericValue})`,
+    property: propName,
+    decrementBy: numericValue
+  };
+}
+
+// 6. TRACK CUSTOM USER EVENTS (clevertap.event.push)
+export function sendCleverTapEvent(eventName, eventProperties = null) {
+  const clevertap = getCleverTapInstance();
+  const hasProperties =
+    eventProperties &&
+    typeof eventProperties === 'object' &&
+    Object.keys(eventProperties).length > 0;
+
+  if (clevertap) {
+    try {
+      if (hasProperties) {
+        clevertap.event.push(eventName, eventProperties);
+      } else {
+        clevertap.event.push(eventName);
+      }
+    } catch (error) {
+      console.warn(`[CleverTap Web SDK] event.push("${eventName}") error:`, error);
+    }
+  }
+
+  return {
+    method: hasProperties
+      ? `clevertap.event.push("${eventName}", properties)`
+      : `clevertap.event.push("${eventName}")`,
     eventName,
-    eventProperties
+    eventProperties: hasProperties ? eventProperties : '(no properties)'
   };
 }
 
-// Triggers the Web Push notification opt-in prompt using clevertap.notifications.push
-export function requestCleverTapWebPushOptIn() {
-  const pushConfig = {
-    titleText: 'Stay in flow with FocusFlow reminders?',
-    bodyText: 'Get gentle nudges for your Pomodoro sessions and daily focus goals.',
-    okButtonText: 'Allow Notifications',
-    rejectButtonText: 'Later',
-    okButtonColor: '#2563EB',
-    serviceWorkerPath: '/clevertap_sw.js'
+// 7. RECORD PURCHASES VIA "CHARGED" SPECIAL EVENT (clevertap.event.push("Charged", ...))
+export function sendCleverTapChargedEvent(chargeData) {
+  const clevertap = getCleverTapInstance();
+
+  const chargedPayload = {
+    Amount: Number(chargeData.amount) || 29.99,
+    'Payment mode': chargeData.paymentMode || 'Credit Card',
+    'Charged ID': chargeData.chargedId || `CHG_${Date.now()}`,
+    Items: chargeData.items || [
+      {
+        Category: 'Subscription',
+        'Item name': 'FocusFlow Pro Annual Plan',
+        Quantity: 1,
+        Price: 24.99
+      },
+      {
+        Category: 'Add-on',
+        'Item name': 'Deep Work Ambient Soundtrack Pack',
+        Quantity: 1,
+        Price: 5.0
+      }
+    ]
   };
 
-  // Ready for Web Push Campaign setup:
-  // clevertap.notifications.push(pushConfig);
+  if (clevertap) {
+    try {
+      clevertap.event.push('Charged', chargedPayload);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] Charged event error:', error);
+    }
+  }
+
   return {
-    method: 'clevertap.notifications.push',
-    payload: pushConfig
+    method: 'clevertap.event.push("Charged", payload)',
+    payload: chargedPayload
   };
 }
 
-// Updates GDPR privacy opt-out and data tracking settings using clevertap.privacy.push
+// 8. PRIVACY & DATA CONSENT (clevertap.privacy.push)
 export function sendCleverTapPrivacyUpdate(optOutBoolean, useIpBoolean = false) {
-  const privacyPayload = {
-    optOut: Boolean(optOutBoolean),
-    useIP: Boolean(useIpBoolean)
-  };
+  const clevertap = getCleverTapInstance();
 
-  // Ready for GDPR Privacy Compliance:
-  // clevertap.privacy.push(privacyPayload);
+  if (clevertap) {
+    try {
+      clevertap.privacy.push({ optOut: Boolean(optOutBoolean) });
+      clevertap.privacy.push({ useIP: Boolean(useIpBoolean) });
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] privacy.push error:', error);
+    }
+  }
+
   return {
     method: 'clevertap.privacy.push',
-    payload: privacyPayload
+    payload: {
+      optOut: Boolean(optOutBoolean),
+      useIP: Boolean(useIpBoolean)
+    }
+  };
+}
+
+// 9. DEBUGGING LOG LEVEL & WZRK_D
+export function updateCleverTapDebugSettings(logLevel = 3, enableWzrkDebug = true) {
+  const clevertap = getCleverTapInstance();
+  const numericLevel = Number(logLevel);
+
+  if (clevertap && typeof clevertap.setLogLevel === 'function') {
+    try {
+      clevertap.setLogLevel(numericLevel);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] setLogLevel error:', error);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    if (enableWzrkDebug) {
+      window.sessionStorage['WZRK_D'] = '';
+    } else {
+      delete window.sessionStorage['WZRK_D'];
+    }
+  }
+
+  return {
+    method: `clevertap.setLogLevel(${numericLevel})`,
+    logLevel: numericLevel,
+    sessionStorage_WZRK_D: enableWzrkDebug ? "'' (enabled)" : 'disabled'
+  };
+}
+
+// 10. OFFLINE MODE (clevertap.setOffline)
+export function updateCleverTapOfflineMode(isOfflineBoolean) {
+  const clevertap = getCleverTapInstance();
+  const offlineState = Boolean(isOfflineBoolean);
+
+  if (clevertap && typeof clevertap.setOffline === 'function') {
+    try {
+      clevertap.setOffline(offlineState);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] setOffline error:', error);
+    }
+  }
+
+  return {
+    method: `clevertap.setOffline(${offlineState})`,
+    isOffline: offlineState,
+    behavior: offlineState
+      ? 'SDK is OFFLINE — events are queued locally in browser storage'
+      : 'SDK is ONLINE — queued events flushed immediately to CleverTap server'
   };
 }

@@ -65,36 +65,9 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* 2. Native Display Personalization Slot (#clevertap-native-display) */}
-      <div
-        id="clevertap-native-display"
-        className="rounded-2xl bg-gradient-to-r from-indigo-50 via-blue-50 to-slate-50 border border-indigo-100 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-      >
-        <div className="flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">
-                Daily Focus Insight
-              </span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white border border-indigo-200 text-indigo-700">
-                #clevertap-native-display
-              </span>
-            </div>
-            <p className="text-sm font-medium text-slate-800 mt-1">
-              Consistency beats intensity. Completing one 25-minute Pomodoro session this morning keeps your streak alive!
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Summary Metric Cards (4-Column Grid) */}
+      {/* 2. Summary Metric Cards (4-Column Grid) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Tasks Today */}
+        {/* Tasks Completed */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold text-slate-500">Tasks Completed</span>
@@ -161,7 +134,7 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* 4. Hero Call-to-Action Banner */}
+      {/* 3. Hero Call-to-Action Banner */}
       <div className="bg-indigo-600 rounded-2xl p-6 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
         <div>
           <h2 className="text-xl font-bold">Ready to enter deep work?</h2>
@@ -178,7 +151,7 @@ export default function DashboardView({
         </button>
       </div>
 
-      {/* 5. Today's Tasks List */}
+      {/* 4. Today's Tasks List */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -261,4 +234,3 @@ export default function DashboardView({
     </div>
   );
 }
-
