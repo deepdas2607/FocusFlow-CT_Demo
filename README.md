@@ -154,7 +154,7 @@ Edit `frontend/.env.local`:
 |------------------------------------|--------------------------------|--------------|
 | `NEXT_PUBLIC_API_URL`              | Backend server URL             | `http://localhost:4000` |
 | `NEXT_PUBLIC_CLEVERTAP_ACCOUNT_ID` | Your CleverTap Account ID      | `ABC-XXX-XXXX` |
-| `NEXT_PUBLIC_CLEVERTAP_REGION`     | Your CleverTap region code     | `in1`        |
+| `NEXT_PUBLIC_CLEVERTAP_REGION`     | Your CleverTap region code     | `eu1`        |
 
 Get your CleverTap credentials:
 1. Log into [CleverTap Dashboard](https://dashboard.clevertap.com)

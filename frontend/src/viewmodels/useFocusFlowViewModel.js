@@ -135,12 +135,13 @@ export function useFocusFlowViewModel() {
 
   // Initial mount: Initialize CleverTap Web SDK, fire "App Launched", and load SQLite data
   useEffect(() => {
-    let initialCtConfig = defaultCleverTapConfig;
+    let initialCtConfig = { ...defaultCleverTapConfig, region: 'eu1' };
     if (typeof window !== 'undefined') {
       const savedConfigJson = window.localStorage.getItem('focusflow_ct_config');
       if (savedConfigJson) {
         try {
-          initialCtConfig = { ...defaultCleverTapConfig, ...JSON.parse(savedConfigJson) };
+          const parsed = JSON.parse(savedConfigJson);
+          initialCtConfig = { ...defaultCleverTapConfig, ...parsed, region: parsed.region || 'eu1' };
           setClevertapConfig(initialCtConfig);
         } catch {
           // Ignore malformed localStorage config
