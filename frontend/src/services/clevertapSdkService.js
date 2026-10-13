@@ -93,12 +93,7 @@ export function initializeCleverTapSdk(customConfig = {}) {
       );
     }
 
-    // Enable fetch API so network calls use modern fetch() and appear in Network -> Fetch/XHR tab
-    try {
-      clevertap.enableFetchApi = true;
-    } catch {
-      // Ignore if read-only
-    }
+    // Do not enable enableFetchApi as CleverTap endpoint returns script ($WZRK_WR), which crashes JSON.parse in handleFetchResponse
 
     // Set SDK console log level (0 = off, 1 = errors, 2 = info, 3 = all logs)
     if (typeof clevertap.setLogLevel === 'function') {
