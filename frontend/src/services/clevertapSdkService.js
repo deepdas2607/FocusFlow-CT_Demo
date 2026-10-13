@@ -56,7 +56,7 @@ export function getCleverTapInstance() {
   return window.__clevertapSdkModule;
 }
 
-// 1. INITIALIZE SDK (clevertap.init + clevertap.account.push + clevertap.spa + privacy + setLogLevel)
+// 1. INITIALIZE SDK (clevertap.init + spa + privacy + setLogLevel)
 export function initializeCleverTapSdk(customConfig = {}) {
   const clevertap = getCleverTapInstance();
   const config = { ...defaultCleverTapConfig, ...customConfig };
@@ -73,20 +73,24 @@ export function initializeCleverTapSdk(customConfig = {}) {
     clevertap.privacy.push({ optOut: Boolean(config.optOut) });
     clevertap.privacy.push({ useIP: Boolean(config.useIP) });
 
-    // Push account credentials including Project Token if provided
-    if (config.token && config.token.trim() !== '') {
+    const targetDomainParam =
+      config.targetDomain && config.targetDomain.trim() !== ''
+        ? config.targetDomain.trim()
+        : undefined;
+    const tokenParam =
+      config.token && config.token.trim() !== '' ? config.token.trim() : undefined;
+
+    // Initialize with Account ID, Region, Target Domain, and Project Token
+    // SDK init signature: init(accountId, region, targetDomain, token)
+    clevertap.init(config.accountId, config.region, targetDomainParam, tokenParam);
+
+    // If legacy array-based clevertap.account exists (HTML script snippet), push to it safely
+    if (Array.isArray(clevertap.account)) {
       clevertap.account.push(
         { id: config.accountId, token: config.token },
         config.region,
-        config.targetDomain || undefined
+        targetDomainParam
       );
-    }
-
-    // Initialize with Account ID, Region, and optional Target Domain
-    if (config.targetDomain && config.targetDomain.trim() !== '') {
-      clevertap.init(config.accountId, config.region, config.targetDomain.trim());
-    } else {
-      clevertap.init(config.accountId, config.region);
     }
 
     // Set SDK console log level (0 = off, 1 = errors, 2 = info, 3 = all logs)
@@ -94,15 +98,19 @@ export function initializeCleverTapSdk(customConfig = {}) {
       clevertap.setLogLevel(Number(config.logLevel ?? 3));
     }
 
-    // Enable or disable verbose browser console debugging
-    if (config.wzrkDebug) {
+    // Enable verbose browser console debugging
+    if (config.wzrkDebug && typeof window !== 'undefined') {
       window.sessionStorage['WZRK_D'] = '';
-    } else {
+    } else if (typeof window !== 'undefined') {
       delete window.sessionStorage['WZRK_D'];
     }
 
+    console.log(
+      `[CleverTap Web SDK] Initialized with Account ID: ${config.accountId}, Region: ${config.region}, Token: ${config.token}`
+    );
+
     return {
-      method: 'clevertap.init(accountId, region, targetDomain)',
+      method: 'clevertap.init(accountId, region, targetDomain, token)',
       accountId: config.accountId,
       token: config.token || '(not set)',
       region: config.region,
@@ -146,11 +154,17 @@ export function sendCleverTapUserLogin(user, dashboardStats = {}) {
   const validDob = rawDob instanceof Date && !isNaN(rawDob.getTime()) ? rawDob : new Date('1998-05-14');
   const dobIso = validDob.toISOString();
 
+  const userEmail = (user.email || 'elena.vance@focusflow.app').trim().toLowerCase();
+  const userName = user.name || 'Elena Vance';
+  const userId = user.id || 'usr_elena_vance';
+
   const sitePayload = {
     Site: {
-      Name: user.name || 'Elena Vance',
-      Identity: String(user.id || 'usr_elena_vance'),
-      Email: user.email || 'elena.vance@focusflow.app',
+      Name: userName,
+      // Setting Identity to userEmail ensures Find People in CleverTap finds Elena whether searching by Email or Identity
+      Identity: userEmail,
+      'User ID': String(userId),
+      Email: userEmail,
       Phone: user.phone || '+14155552671',
       Gender: user.gender || 'F',
       DOB: validDob,
@@ -179,6 +193,7 @@ export function sendCleverTapUserLogin(user, dashboardStats = {}) {
           DOB: new Date(validDob.getTime())
         }
       });
+      console.log('[CleverTap Web SDK] onUserLogin successfully pushed for:', userEmail);
     } catch (error) {
       console.warn('[CleverTap Web SDK] onUserLogin error:', error);
     }
@@ -205,10 +220,16 @@ export function sendCleverTapProfileUpdate(user, dashboardStats = {}) {
   const lastActiveDate = new Date();
   const lastActiveIso = lastActiveDate.toISOString();
 
+  const userEmail = (user.email || 'elena.vance@focusflow.app').trim().toLowerCase();
+  const userName = user.name || 'Elena Vance';
+  const userId = user.id || 'usr_elena_vance';
+
   const sitePayload = {
     Site: {
-      Name: user.name || 'Elena Vance',
-      Email: user.email || 'elena.vance@focusflow.app',
+      Name: userName,
+      Identity: userEmail,
+      'User ID': String(userId),
+      Email: userEmail,
       Phone: user.phone || '+14155552671',
       DOB: validDob,
       Occupation: user.occupation || 'Senior Product Designer',
@@ -238,6 +259,7 @@ export function sendCleverTapProfileUpdate(user, dashboardStats = {}) {
           'Last Active Date': new Date(lastActiveDate.getTime())
         }
       });
+      console.log('[CleverTap Web SDK] profile.push successfully pushed for:', userEmail);
     } catch (error) {
       console.warn('[CleverTap Web SDK] profile.push error:', error);
     }
