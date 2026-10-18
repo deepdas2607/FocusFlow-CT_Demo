@@ -40,7 +40,25 @@ import {
   decrementCleverTapProfileProperty,
   sendCleverTapPrivacyUpdate,
   updateCleverTapDebugSettings,
-  updateCleverTapOfflineMode
+  updateCleverTapOfflineMode,
+  updateCleverTapDismissSpamControl,
+  closeCleverTapBoxPopup,
+  closeCleverTapBannerPopup,
+  closeCleverTapInterstitialPopup,
+  closeCleverTapImageOnlyPopup,
+  closeCleverTapPipPopup,
+  closeActiveCleverTapPopup,
+  handleSpaRoutePopupDismissal,
+  registerCleverTapNotificationCallback,
+  renderCleverTapNotificationViewed,
+  renderCleverTapNotificationClicked,
+  registerCleverTapPopupCallback,
+  raiseCleverTapPopupNotificationClicked,
+  setupCleverTapExitIntentListener,
+  PIP_ANCHOR_POSITIONS,
+  getPipPositionClasses,
+  resolvePipClickAction,
+  getCleverTapInstance
 } from '../services/clevertapSdkService';
 
 export function useFocusFlowViewModel() {
@@ -53,6 +71,27 @@ export function useFocusFlowViewModel() {
 
   // CleverTap Web SDK Quick Start configuration state
   const [clevertapConfig, setClevertapConfig] = useState(defaultCleverTapConfig);
+
+  // Web Pop-ups & Exit Intent state
+  const [activePopup, setActivePopup] = useState(null);
+  const [dismissSpamControl, setDismissSpamControl] = useState(true);
+  const [exitIntentEnabled, setExitIntentEnabled] = useState(true);
+  const [shownCampaignsInSession, setShownCampaignsInSession] = useState({});
+  const [pipConfig, setPipConfig] = useState({
+    anchor: 'bottom-right',
+    isPlaying: true,
+    isMuted: true,
+    isExpanded: false,
+    dragEnabled: true
+  });
+  const [customNotificationMsg, setCustomNotificationMsg] = useState(null);
+  const [popupAnalytics, setPopupAnalytics] = useState({
+    viewedCount: 0,
+    clickedCount: 0,
+    dismissedCount: 0,
+    spamBlockedCount: 0,
+    exitIntentTriggers: 0
+  });
 
   // Core Data state loaded from SQLite Backend
   const [user, setUser] = useState(createEmptyUserModel());
@@ -167,6 +206,7 @@ export function useFocusFlowViewModel() {
         addActivityLog('CLEVERTAP_SDK', 'clevertap.onUserLogin.push (Elena Vance)', ctLoginPayload);
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Countdown effect when a Focus Session is actively running
@@ -185,10 +225,31 @@ export function useFocusFlowViewModel() {
     }, 1000);
 
     return () => clearInterval(timerIntervalRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSession]);
 
-  // Tracks screen view events in CleverTap when switching navigation tabs
+  // Tracks screen view events in CleverTap and handles SPA route change pop-up auto-dismissal
   function handleNavigateTab(nextTab) {
+    // 1. SPA Route Change Pop-up Auto-Dismissal
+    // When clevertap.spa is true, active Box, Banner, and Image Only popups are automatically dismissed
+    if (clevertapConfig.spa && activePopup) {
+      if (['box', 'banner', 'imageOnly'].includes(activePopup.type)) {
+        const spaResult = handleSpaRoutePopupDismissal();
+        setActivePopup(null);
+        addActivityLog(
+          'CLEVERTAP_POPUP',
+          `[SPA Auto-Dismissal] clevertap.spa closed ${activePopup.type} on navigation`,
+          {
+            closedTemplate: activePopup.type,
+            routeFrom: activeTab,
+            routeTo: nextTab,
+            clevertapSpa: true,
+            ...spaResult
+          }
+        );
+      }
+    }
+
     setActiveTab(nextTab);
     if (nextTab === 'dashboard') {
       const ev = sendCleverTapEvent(CLEVERTAP_EVENTS.DASHBOARD_VIEWED);
@@ -199,7 +260,252 @@ export function useFocusFlowViewModel() {
     } else if (nextTab === 'settings') {
       const ev = sendCleverTapEvent(CLEVERTAP_EVENTS.PROFILE_VIEWED);
       addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("Profile Viewed")', ev);
+    } else if (nextTab === 'popups') {
+      const ev = sendCleverTapEvent('Web Popups Studio Viewed', {
+        'User ID': user.id,
+        'Dismiss Spam Control': dismissSpamControl,
+        'Exit Intent Enabled': exitIntentEnabled
+      });
+      addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("Web Popups Studio Viewed")', ev);
     }
+  }
+
+  // Effect: Desktop Exit Intent Listener (triggers when cursor moves towards browser top edge)
+  useEffect(() => {
+    if (!exitIntentEnabled) return;
+
+    const cleanup = setupCleverTapExitIntentListener((eventData) => {
+      const campaignId = 'camp_exit_intent_streak_saver';
+      if (!dismissSpamControl && shownCampaignsInSession[campaignId]) {
+        addActivityLog('CLEVERTAP_POPUP', 'Exit Intent Blocked (dismissSpamControl = false)', {
+          reason: 'Campaign already dismissed once in this session',
+          campaignId,
+          dismissSpamControl
+        });
+        setPopupAnalytics((prev) => ({ ...prev, spamBlockedCount: prev.spamBlockedCount + 1 }));
+        return;
+      }
+
+      setActivePopup((current) => {
+        if (current) return current;
+        const msgId = `${campaignId}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+        const pivotId = 'Variant_Exit_StreakSaver';
+        const exitPopup = {
+          id: 'intentPreview',
+          type: 'interstitial',
+          isExitIntent: true,
+          campaignId,
+          pivotId,
+          msgId,
+          title: 'Wait! Don’t Break Your Focus Streak!',
+          description: `You are currently on a ${dashboard.currentStreak || 1}-day streak! Complete one 25-minute Pomodoro session today to keep your streak intact.`,
+          c2aText: 'Stay & Focus (25m)',
+          secondaryText: 'Leave Website',
+          kv: { intent_source: 'desktop_window_exit', discount_pct: '25' }
+        };
+
+        renderCleverTapNotificationViewed({ msgId, pivotId });
+        addActivityLog('CLEVERTAP_POPUP', 'clevertap.renderNotificationViewed (Exit Intent Interstitial)', {
+          ...eventData,
+          popup: exitPopup
+        });
+
+        setShownCampaignsInSession((prev) => ({ ...prev, [campaignId]: true }));
+        setPopupAnalytics((prev) => ({
+          ...prev,
+          viewedCount: prev.viewedCount + 1,
+          exitIntentTriggers: prev.exitIntentTriggers + 1
+        }));
+
+        return exitPopup;
+      });
+    });
+
+    return cleanup;
+  }, [exitIntentEnabled, dismissSpamControl, shownCampaignsInSession, dashboard.currentStreak]);
+
+  // Effect: Register CleverTap Custom Callbacks (notificationCallback & popupCallback)
+  useEffect(() => {
+    registerCleverTapNotificationCallback((msg) => {
+      setCustomNotificationMsg(msg);
+      addActivityLog('CLEVERTAP_POPUP', 'clevertap.notificationCallback received', msg);
+    });
+
+    registerCleverTapPopupCallback((data) => {
+      addActivityLog('CLEVERTAP_POPUP', 'clevertap.popupCallback received', data);
+    });
+  }, []);
+
+  // --- WEB POP-UPS & EXIT INTENT ACTION HANDLERS ---
+
+  function handleTriggerPopup(popupType, options = {}) {
+    const campaignId = options.campaignId || `camp_${popupType}_${Date.now()}`;
+    const pivotId = options.pivotId || `Variant_${popupType.toUpperCase()}_1`;
+    const msgId = `${campaignId}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+
+    if (!dismissSpamControl && shownCampaignsInSession[campaignId]) {
+      const msg = `Campaign "${campaignId}" blocked: dismissSpamControl is false (one-time delivery per session).`;
+      showStatusToast(msg);
+      addActivityLog('CLEVERTAP_POPUP', 'Popup Delivery Blocked (dismissSpamControl = false)', {
+        campaignId,
+        dismissSpamControl,
+        rule: 'One-time delivery per session active'
+      });
+      setPopupAnalytics((prev) => ({ ...prev, spamBlockedCount: prev.spamBlockedCount + 1 }));
+      return null;
+    }
+
+    const titles = {
+      box: 'Level Up Your FocusFlow Experience',
+      banner: '⚡ Focus Challenge: 3 Pomodoros Today',
+      interstitial: '🎯 Deep Work Sprint: 50-Min Audio Immersion',
+      imageOnly: 'FocusFlow Visual Masterclass Series',
+      pip: 'Picture-in-Picture Video: Deep Work Tactics',
+      customHtml: 'Custom HTML Pop-up (with wzrk_c2a)',
+      customCallback: 'Custom Notification via clevertap.notificationCallback'
+    };
+
+    const descriptions = {
+      box: 'Upgrade to FocusFlow Pro today to unlock binaural ambient tracks and unlimited session analytics.',
+      banner: 'Complete 3 focus sessions before 6 PM to earn the Daily Flow Star on your profile!',
+      interstitial: 'Block distracting tabs and activate flow state soundtracks for the next 50 minutes.',
+      imageOnly: 'Explore our visual guide to structuring your work day for maximum creative output.',
+      pip: 'Watch this 3-minute tactical walkthrough while continuing to manage your tasks below.',
+      customHtml: 'Interactive HTML template featuring custom wzrk_c2a click tracking attributes.',
+      customCallback: 'Application-rendered UI triggered by clevertap.notificationCallback.'
+    };
+
+    const newPopup = {
+      id: popupType === 'box' ? 'wizParDiv0' : popupType === 'banner' ? 'wizParDiv2' : popupType === 'interstitial' ? 'intentPreview' : 'popupWrapper',
+      type: popupType,
+      campaignId,
+      pivotId,
+      msgId,
+      title: options.title || titles[popupType] || 'FocusFlow Notification',
+      description: options.description || descriptions[popupType] || 'Notice from CleverTap campaign engine',
+      c2aText: options.c2aText || 'Learn More',
+      secondaryText: options.secondaryText || 'Dismiss',
+      kv: options.kv || { campaign_category: 'focus_promotion', source: 'web_popups_studio' },
+      anchor: options.anchor || pipConfig.anchor,
+      mediaUrl: options.mediaUrl || 'https://images.unsplash.com/photo-1517842645767-c639042777db?auto=format&fit=crop&w=700&q=80',
+      ...options
+    };
+
+    if (popupType === 'customCallback') {
+      const callbackPayload = {
+        msgContent: {
+          html: `<div class="p-4 bg-white rounded-xl shadow-lg border border-indigo-100">
+            <h4 class="font-bold text-slate-900">${newPopup.title}</h4>
+            <p class="text-xs text-slate-600 mt-1">${newPopup.description}</p>
+          </div>`,
+          type: 1,
+          templateType: 'banner',
+          title: newPopup.title,
+          description: newPopup.description,
+          kv: newPopup.kv
+        },
+        msgId
+      };
+      setCustomNotificationMsg(callbackPayload);
+      const ct = getCleverTapInstance();
+      if (ct && typeof ct.notificationCallback === 'function') {
+        ct.notificationCallback(callbackPayload);
+      }
+    }
+
+    setActivePopup(newPopup);
+    setShownCampaignsInSession((prev) => ({ ...prev, [campaignId]: true }));
+
+    const viewedPayload = { msgId, pivotId };
+    const viewedLog = renderCleverTapNotificationViewed(viewedPayload);
+    addActivityLog('CLEVERTAP_POPUP', `clevertap.renderNotificationViewed (${popupType})`, viewedLog);
+
+    setPopupAnalytics((prev) => ({ ...prev, viewedCount: prev.viewedCount + 1 }));
+    showStatusToast(`Triggered CleverTap ${popupType.toUpperCase()} Pop-up`);
+    return newPopup;
+  }
+
+  function handleCloseActivePopup(popupType = null) {
+    const targetType = popupType || activePopup?.type || 'all';
+    const closeResult = closeActiveCleverTapPopup(targetType);
+    setActivePopup(null);
+    setPopupAnalytics((prev) => ({ ...prev, dismissedCount: prev.dismissedCount + 1 }));
+    addActivityLog('CLEVERTAP_POPUP', `Close Web Pop-up (${targetType})`, closeResult);
+    showStatusToast(`Closed ${targetType} Pop-up`);
+  }
+
+  function handlePopupActionClicked(customPayload = null) {
+    const payload = customPayload || {
+      msgId: activePopup?.msgId || `camp_click_${Date.now()}`,
+      pivotId: activePopup?.pivotId || 'Variant_Default',
+      kv: activePopup?.kv || {}
+    };
+
+    if (activePopup?.type === 'customHtml') {
+      const clickResult = raiseCleverTapPopupNotificationClicked(payload);
+      addActivityLog('CLEVERTAP_POPUP', 'clevertap.raisePopupNotificationClicked', clickResult);
+    } else {
+      const clickResult = renderCleverTapNotificationClicked(payload);
+      addActivityLog('CLEVERTAP_POPUP', 'clevertap.renderNotificationClicked', clickResult);
+    }
+
+    setPopupAnalytics((prev) => ({ ...prev, clickedCount: prev.clickedCount + 1 }));
+    showStatusToast(`Recorded Pop-up Click: ${payload.msgId}`);
+  }
+
+  function handleToggleDismissSpamControl(newVal) {
+    const val = Boolean(newVal);
+    setDismissSpamControl(val);
+    const result = updateCleverTapDismissSpamControl(val);
+    addActivityLog('CLEVERTAP_SDK', `clevertap.dismissSpamControl = ${val}`, result);
+    showStatusToast(`Dismiss Spam Control set to ${val}`);
+  }
+
+  function handleToggleExitIntent(newVal) {
+    const val = Boolean(newVal);
+    setExitIntentEnabled(val);
+    addActivityLog('CLEVERTAP_POPUP', `Exit Intent Listener ${val ? 'Enabled' : 'Disabled'}`, {
+      viewport: 'Desktop (>480px)',
+      behavior: 'Triggers on mouseleave at top edge (clientY <= 10)'
+    });
+    showStatusToast(`Desktop Exit Intent: ${val ? 'Enabled' : 'Disabled'}`);
+  }
+
+  function handlePipAnchorChange(newAnchor) {
+    setPipConfig((prev) => ({ ...prev, anchor: newAnchor }));
+    if (activePopup?.type === 'pip') {
+      setActivePopup((prev) => ({ ...prev, anchor: newAnchor }));
+    }
+    addActivityLog('CLEVERTAP_POPUP', `PIP Anchor Position changed: ${newAnchor}`, {
+      anchor: newAnchor,
+      allAnchors: PIP_ANCHOR_POSITIONS
+    });
+  }
+
+  function handlePipControl(action) {
+    if (action === 'play_pause') {
+      setPipConfig((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
+      addActivityLog('CLEVERTAP_POPUP', 'PIP Control: Play/Pause toggled', { isPlaying: !pipConfig.isPlaying });
+    } else if (action === 'mute_unmute') {
+      setPipConfig((prev) => ({ ...prev, isMuted: !prev.isMuted }));
+      addActivityLog('CLEVERTAP_POPUP', 'PIP Control: Mute/Unmute toggled', { isMuted: !pipConfig.isMuted });
+    } else if (action === 'expand_collapse') {
+      setPipConfig((prev) => ({ ...prev, isExpanded: !prev.isExpanded }));
+      addActivityLog('CLEVERTAP_POPUP', 'PIP Control: Expand/Collapse toggled', { isExpanded: !pipConfig.isExpanded });
+    } else if (action === 'open_tab') {
+      window.open('https://focusflow.app', '_blank');
+      handlePopupActionClicked();
+    } else if (action === 'close') {
+      handleCloseActivePopup('pip');
+    }
+  }
+
+  function handleResetSessionCampaigns() {
+    setShownCampaignsInSession({});
+    showStatusToast('Reset session campaign history (Simulating new session)');
+    addActivityLog('CLEVERTAP_POPUP', 'Session Campaign History Reset', {
+      note: 'All campaigns can now be shown again even if dismissSpamControl = false'
+    });
   }
 
   // --- AUTHENTICATION & IDENTITY ACTIONS (clevertap.onUserLogin.push) ---
@@ -719,6 +1025,23 @@ export function useFocusFlowViewModel() {
     handleStartFocusSession,
     handleCompleteFocusSession,
     handleAbandonFocusSession,
-    handleClearActivityLogs
+    handleClearActivityLogs,
+
+    // Web Pop-ups & Exit Intent state & handlers
+    activePopup,
+    dismissSpamControl,
+    exitIntentEnabled,
+    pipConfig,
+    customNotificationMsg,
+    popupAnalytics,
+    shownCampaignsInSession,
+    handleTriggerPopup,
+    handleCloseActivePopup,
+    handlePopupActionClicked,
+    handleToggleDismissSpamControl,
+    handleToggleExitIntent,
+    handlePipAnchorChange,
+    handlePipControl,
+    handleResetSessionCampaigns
   };
 }

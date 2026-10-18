@@ -110,7 +110,7 @@ export default function UpgradeProModalView({
 
           {/* Charged Event Spec Preview */}
           <div className="p-3.5 rounded-xl bg-slate-950 text-slate-300 font-mono text-[11px] space-y-1">
-            <div className="text-emerald-400 font-bold">// CleverTap Event Payload</div>
+            <div className="text-emerald-400 font-bold">{`// CleverTap Event Payload`}</div>
             <div>Event: &quot;Charged&quot;</div>
             <div>Amount: {selectedPlan === 'Annual' ? 29.99 : 9.99}</div>
             <div>Payment mode: &quot;{paymentMode}&quot;</div>

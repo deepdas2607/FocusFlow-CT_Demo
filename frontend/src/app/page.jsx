@@ -18,6 +18,8 @@ import ProgressAnalyticsView from '../views/ProgressAnalyticsView';
 import ProfileSettingsView from '../views/ProfileSettingsView';
 import UpgradeProModalView from '../views/UpgradeProModalView';
 import ActivityLogInspectorView from '../views/ActivityLogInspectorView';
+import WebPopupsStudioView from '../views/WebPopupsStudioView';
+import WebPopupsOverlayView from '../views/WebPopupsOverlayView';
 
 export default function FocusFlowAppPage() {
   const vm = useFocusFlowViewModel();
@@ -141,8 +143,38 @@ export default function FocusFlowAppPage() {
               onFireCustomEvent={vm.handleFireCustomEvent}
             />
           )}
+
+          {vm.activeTab === 'popups' && (
+            <WebPopupsStudioView
+              activePopup={vm.activePopup}
+              dismissSpamControl={vm.dismissSpamControl}
+              exitIntentEnabled={vm.exitIntentEnabled}
+              pipConfig={vm.pipConfig}
+              customNotificationMsg={vm.customNotificationMsg}
+              popupAnalytics={vm.popupAnalytics}
+              shownCampaignsInSession={vm.shownCampaignsInSession}
+              onTriggerPopup={vm.handleTriggerPopup}
+              onClosePopup={vm.handleCloseActivePopup}
+              onPopupActionClick={vm.handlePopupActionClicked}
+              onToggleDismissSpamControl={vm.handleToggleDismissSpamControl}
+              onToggleExitIntent={vm.handleToggleExitIntent}
+              onPipAnchorChange={vm.handlePipAnchorChange}
+              onPipControl={vm.handlePipControl}
+              onResetSessionCampaigns={vm.handleResetSessionCampaigns}
+              onNavigateTab={vm.setActiveTab}
+            />
+          )}
         </main>
       </div>
+
+      {/* Pop-up Overlay Renderer (Box, Banner, Interstitial, Image Only, PIP, Custom HTML) */}
+      <WebPopupsOverlayView
+        popup={vm.activePopup}
+        pipConfig={vm.pipConfig}
+        onClose={vm.handleCloseActivePopup}
+        onActionClick={vm.handlePopupActionClicked}
+        onPipControl={vm.handlePipControl}
+      />
 
       {/* 3. Collapsible Right-Side Live Activity & Payload Inspector */}
       <ActivityLogInspectorView

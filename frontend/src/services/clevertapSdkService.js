@@ -36,6 +36,7 @@ export const defaultCleverTapConfig = {
   targetDomain: process.env.NEXT_PUBLIC_CLEVERTAP_TARGET_DOMAIN || '',
   logLevel: 3, // 0: off, 1: errors, 2: info + errors, 3: all logs
   spa: true,
+  dismissSpamControl: true, // Web SDK v2.0+ default: true. Set false to restrict repeat notifications per session.
   optOut: false,
   useIP: false,
   isOffline: false,
@@ -46,17 +47,28 @@ export const defaultCleverTapConfig = {
 export function getCleverTapInstance() {
   if (typeof window === 'undefined') return null;
 
-  if (!window.__clevertapSdkModule) {
-    const sdkModule = require('clevertap-web-sdk');
-    const clevertap = sdkModule.default || sdkModule;
-    window.__clevertapSdkModule = clevertap;
-    window.clevertap = clevertap;
+  if (window.__clevertapSdkModule) return window.__clevertapSdkModule;
+  if (window.clevertap) {
+    window.__clevertapSdkModule = window.clevertap;
+    return window.clevertap;
   }
 
-  return window.__clevertapSdkModule;
+  try {
+    if (typeof require === 'function') {
+      const sdkModule = require('clevertap-web-sdk');
+      const clevertap = sdkModule.default || sdkModule;
+      window.__clevertapSdkModule = clevertap;
+      window.clevertap = clevertap;
+      return clevertap;
+    }
+  } catch {
+    // Graceful fallback if require is not available or module resolution fails
+  }
+
+  return window.clevertap || null;
 }
 
-// 1. INITIALIZE SDK (clevertap.init + spa + privacy + setLogLevel)
+// 1. INITIALIZE SDK (clevertap.init + spa + dismissSpamControl + privacy + setLogLevel)
 export function initializeCleverTapSdk(customConfig = {}) {
   const clevertap = getCleverTapInstance();
   const config = { ...defaultCleverTapConfig, ...customConfig };
@@ -68,6 +80,13 @@ export function initializeCleverTapSdk(customConfig = {}) {
   try {
     // Enable Single Page Application (SPA) mode
     clevertap.spa = Boolean(config.spa);
+
+    // Set Dismiss Spam Control flag (default true in Web SDK v2.0+)
+    try {
+      clevertap.dismissSpamControl = Boolean(config.dismissSpamControl ?? true);
+    } catch {
+      // Safe fallback if property is read-only
+    }
 
     // Push initial privacy flags
     clevertap.privacy.push({ optOut: Boolean(config.optOut) });
@@ -118,6 +137,7 @@ export function initializeCleverTapSdk(customConfig = {}) {
       region: config.region,
       targetDomain: config.targetDomain || 'clevertap-prod.com (default)',
       spa: clevertap.spa,
+      dismissSpamControl: Boolean(clevertap.dismissSpamControl ?? config.dismissSpamControl ?? true),
       logLevel: Number(config.logLevel ?? 3),
       wzrkDebug: Boolean(config.wzrkDebug),
       privacy: { optOut: Boolean(config.optOut), useIP: Boolean(config.useIP) }
@@ -482,3 +502,329 @@ export function updateCleverTapOfflineMode(isOfflineBoolean) {
       : 'SDK is ONLINE — queued events flushed immediately to CleverTap server'
   };
 }
+
+// ============================================================================
+// WEB POP-UPS & EXIT INTENT (CleverTap Web Pop-ups & Exit Intent Guide)
+// ============================================================================
+
+// 11. DISMISS SPAM CONTROL (clevertap.dismissSpamControl)
+// When dismissSpamControl = false:
+//   A campaign shown once will NOT be shown again until a new session begins.
+// When dismissSpamControl = true (SDK v2.0+ default):
+//   Overrides restriction; campaign can show repeatedly within the same session.
+export function updateCleverTapDismissSpamControl(enabledBoolean) {
+  const clevertap = getCleverTapInstance();
+  const flag = Boolean(enabledBoolean);
+
+  if (clevertap) {
+    try {
+      clevertap.dismissSpamControl = flag;
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] dismissSpamControl set error:', error);
+    }
+  }
+
+  return {
+    method: `clevertap.dismissSpamControl = ${flag}`,
+    dismissSpamControl: flag,
+    behavior: flag
+      ? 'Campaigns can repeat within the same session after being dismissed'
+      : 'Campaigns will NOT repeat within the same session once dismissed (one-time delivery per session)'
+  };
+}
+
+// 12. CLOSE BUTTON HELPERS (Matching official CleverTap DOM identifiers)
+// Box Pop-up: #wizParDiv0
+export function closeCleverTapBoxPopup() {
+  if (typeof window === 'undefined') return { status: 'SSR_SKIPPED' };
+  const wrapper = window.document.getElementById('wizParDiv0');
+  if (wrapper) {
+    setTimeout(() => {
+      wrapper.remove();
+    }, 0);
+    return { method: 'closeBoxPopUp()', elementId: 'wizParDiv0', removed: true };
+  }
+  return { method: 'closeBoxPopUp()', elementId: 'wizParDiv0', removed: false, reason: 'Element not found in DOM' };
+}
+
+// Banner Pop-up: #wizParDiv2
+export function closeCleverTapBannerPopup() {
+  if (typeof window === 'undefined') return { status: 'SSR_SKIPPED' };
+  const wrapper = window.document.getElementById('wizParDiv2');
+  if (wrapper) {
+    setTimeout(() => {
+      wrapper.remove();
+    }, 0);
+    return { method: 'closeBannerPopUp()', elementId: 'wizParDiv2', removed: true };
+  }
+  return { method: 'closeBannerPopUp()', elementId: 'wizParDiv2', removed: false, reason: 'Element not found in DOM' };
+}
+
+// Interstitial Pop-up: #intentOpacityDiv (overlay) + #intentPreview (wrapper)
+export function closeCleverTapInterstitialPopup() {
+  if (typeof window === 'undefined') return { status: 'SSR_SKIPPED' };
+  const overlay = window.document.getElementById('intentOpacityDiv');
+  const wrapper = window.document.getElementById('intentPreview');
+  setTimeout(() => {
+    if (overlay) overlay.remove();
+    if (wrapper) wrapper.remove();
+  }, 0);
+  return {
+    method: 'closeInterstitialPopUp()',
+    overlayId: 'intentOpacityDiv',
+    wrapperId: 'intentPreview',
+    removed: Boolean(overlay || wrapper)
+  };
+}
+
+// Image-Only Pop-up: #wzrkImageOnlyDiv
+export function closeCleverTapImageOnlyPopup() {
+  if (typeof window === 'undefined') return { status: 'SSR_SKIPPED' };
+  const wrapper = window.document.getElementById('wzrkImageOnlyDiv');
+  if (wrapper) {
+    setTimeout(() => {
+      wrapper.remove();
+    }, 0);
+    return { method: 'closeImageOnlyPopUp()', elementId: 'wzrkImageOnlyDiv', removed: true };
+  }
+  return { method: 'closeImageOnlyPopUp()', elementId: 'wzrkImageOnlyDiv', removed: false };
+}
+
+// PIP Pop-up: <ct-web-popup-pip> or #ct-web-popup-pip
+export function closeCleverTapPipPopup() {
+  if (typeof window === 'undefined') return { status: 'SSR_SKIPPED' };
+  const pipEl = window.document.querySelector('ct-web-popup-pip') || window.document.getElementById('ct-web-popup-pip');
+  if (pipEl) {
+    setTimeout(() => {
+      pipEl.remove();
+    }, 0);
+    return { method: 'closePipPopUp()', element: '<ct-web-popup-pip>', removed: true };
+  }
+  return { method: 'closePipPopUp()', element: '<ct-web-popup-pip>', removed: false };
+}
+
+// Generic close function for active popups
+export function closeActiveCleverTapPopup(templateType = 'all') {
+  if (typeof window === 'undefined') return { status: 'SSR_SKIPPED' };
+  const results = {};
+  if (templateType === 'box' || templateType === 'all') {
+    results.box = closeCleverTapBoxPopup();
+  }
+  if (templateType === 'banner' || templateType === 'all') {
+    results.banner = closeCleverTapBannerPopup();
+  }
+  if (templateType === 'interstitial' || templateType === 'all') {
+    results.interstitial = closeCleverTapInterstitialPopup();
+  }
+  if (templateType === 'imageOnly' || templateType === 'all') {
+    results.imageOnly = closeCleverTapImageOnlyPopup();
+  }
+  if (templateType === 'pip' || templateType === 'all') {
+    results.pip = closeCleverTapPipPopup();
+  }
+  return results;
+}
+
+// 13. SINGLE-PAGE APPLICATIONS (SPA) ROUTE CHANGE DISMISSAL
+// When clevertap.spa is true, active Web popups (Box, Banner, Image Only) are automatically dismissed on route changes.
+export function handleSpaRoutePopupDismissal() {
+  if (typeof window === 'undefined') return { status: 'SSR_SKIPPED' };
+  const clevertap = getCleverTapInstance();
+  if (clevertap && clevertap.spa) {
+    const box = closeCleverTapBoxPopup();
+    const banner = closeCleverTapBannerPopup();
+    const imageOnly = closeCleverTapImageOnlyPopup();
+    return {
+      spaMode: true,
+      dismissed: {
+        box: box.removed,
+        banner: banner.removed,
+        imageOnly: imageOnly.removed
+      }
+    };
+  }
+  return { spaMode: false, dismissed: null };
+}
+
+// 14. CUSTOM NOTIFICATION CALLBACK & RENDER TRACKING
+// clevertap.notificationCallback = function(msg) { ... }
+// clevertap.renderNotificationViewed(customNotificationPayload);
+// clevertap.renderNotificationClicked(customNotificationPayload);
+export function registerCleverTapNotificationCallback(customHandler) {
+  const clevertap = getCleverTapInstance();
+  if (clevertap) {
+    clevertap.notificationCallback = function (msg) {
+      console.log('[CleverTap Web SDK] Custom notificationCallback triggered with msg:', msg);
+      if (typeof customHandler === 'function') {
+        customHandler(msg);
+      }
+    };
+    return {
+      method: 'clevertap.notificationCallback = function(msg){...}',
+      registered: true
+    };
+  }
+  return { method: 'clevertap.notificationCallback', registered: false };
+}
+
+export function renderCleverTapNotificationViewed(customNotificationPayload = {}) {
+  const clevertap = getCleverTapInstance();
+  const payload = {
+    msgId: customNotificationPayload?.msgId || `camp_${Date.now()}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
+    ...(customNotificationPayload?.pivotId ? { pivotId: customNotificationPayload.pivotId } : {})
+  };
+
+  if (clevertap && typeof clevertap.renderNotificationViewed === 'function') {
+    try {
+      clevertap.renderNotificationViewed(payload);
+      console.log('[CleverTap Web SDK] renderNotificationViewed invoked:', payload);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] renderNotificationViewed error:', error);
+    }
+  }
+
+  return {
+    method: 'clevertap.renderNotificationViewed(payload)',
+    payload
+  };
+}
+
+export function renderCleverTapNotificationClicked(customNotificationPayload = {}) {
+  const clevertap = getCleverTapInstance();
+  const payload = {
+    msgId: customNotificationPayload?.msgId || `camp_${Date.now()}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
+    ...(customNotificationPayload?.pivotId ? { pivotId: customNotificationPayload.pivotId } : {}),
+    ...(customNotificationPayload?.kv ? { kv: customNotificationPayload.kv } : {})
+  };
+
+  if (clevertap && typeof clevertap.renderNotificationClicked === 'function') {
+    try {
+      clevertap.renderNotificationClicked(payload);
+      console.log('[CleverTap Web SDK] renderNotificationClicked invoked:', payload);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] renderNotificationClicked error:', error);
+    }
+  }
+
+  return {
+    method: 'clevertap.renderNotificationClicked(payload)',
+    payload
+  };
+}
+
+// 15. CUSTOM HTML POP-UP POPUPCALLBACK & CLICK TRACKING
+// window.parent.clevertap.popupCallback = (notificationData) => { notificationObj = notificationData; }
+// window.parent.clevertap.raisePopupNotificationClicked(notificationObj)
+export function registerCleverTapPopupCallback(customHandler) {
+  const clevertap = getCleverTapInstance();
+  if (clevertap) {
+    clevertap.popupCallback = function (notificationData) {
+      console.log('[CleverTap Web SDK] Custom popupCallback received notificationData:', notificationData);
+      if (typeof customHandler === 'function') {
+        customHandler(notificationData);
+      }
+    };
+    return {
+      method: 'clevertap.popupCallback = (notificationData) => {...}',
+      registered: true
+    };
+  }
+  return { method: 'clevertap.popupCallback', registered: false };
+}
+
+export function raiseCleverTapPopupNotificationClicked(notificationObj) {
+  const clevertap = getCleverTapInstance();
+  const validObj = notificationObj || {
+    msgId: `camp_custom_html_${Date.now()}`,
+    pivotId: 'Variant_HTML_1'
+  };
+
+  if (clevertap && typeof clevertap.raisePopupNotificationClicked === 'function') {
+    try {
+      clevertap.raisePopupNotificationClicked(validObj);
+      console.log('[CleverTap Web SDK] raisePopupNotificationClicked invoked with:', validObj);
+    } catch (error) {
+      console.warn('[CleverTap Web SDK] raisePopupNotificationClicked error:', error);
+    }
+  }
+
+  return {
+    method: 'clevertap.raisePopupNotificationClicked(notificationObj)',
+    notificationObj: validObj
+  };
+}
+
+// 16. DESKTOP EXIT INTENT DETECTION LISTENER
+// Monitors pointer movement towards window top edge (desktop viewports > 480px)
+export function setupCleverTapExitIntentListener(onExitIntentCallback) {
+  if (typeof window === 'undefined') return () => {};
+
+  function handleMouseLeave(event) {
+    // Exit intent triggers when user moves pointer outside the browser window (desktop only)
+    if (window.innerWidth <= 480) return; // Desktop only
+    if (event.clientY <= 10) {
+      if (typeof onExitIntentCallback === 'function') {
+        onExitIntentCallback({
+          trigger: 'mouse_leave_top',
+          clientY: event.clientY,
+          viewportWidth: window.innerWidth,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  }
+
+  window.document.documentElement.addEventListener('mouseleave', handleMouseLeave);
+
+  return function cleanup() {
+    window.document.documentElement.removeEventListener('mouseleave', handleMouseLeave);
+  };
+}
+
+// 17. PIP (PICTURE-IN-PICTURE) ANCHOR POSITIONS & BREAKPOINTS
+export const PIP_ANCHOR_POSITIONS = [
+  'center',
+  'top-left',
+  'top',
+  'top-right',
+  'left',
+  'right',
+  'bottom-left',
+  'bottom',
+  'bottom-right'
+];
+
+export function getPipPositionClasses(anchor = 'bottom-right') {
+  switch (anchor) {
+    case 'center':
+      return 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2';
+    case 'top-left':
+      return 'top-5 left-5';
+    case 'top':
+      return 'top-5 left-1/2 -translate-x-1/2';
+    case 'top-right':
+      return 'top-5 right-5';
+    case 'left':
+      return 'top-1/2 left-5 -translate-y-1/2';
+    case 'right':
+      return 'top-1/2 right-5 -translate-y-1/2';
+    case 'bottom-left':
+      return 'bottom-5 left-5';
+    case 'bottom':
+      return 'bottom-5 left-1/2 -translate-x-1/2';
+    case 'bottom-right':
+    default:
+      return 'bottom-5 right-5';
+  }
+}
+
+export function resolvePipClickAction(pipConfig = {}) {
+  if (typeof window === 'undefined') return pipConfig.desktopAction || 'open_details';
+  const isDesktop = window.innerWidth > 480;
+  if (isDesktop) {
+    return pipConfig.display?.pip?.onClick || pipConfig.desktopAction || 'open_details';
+  }
+  // Mobile <= 480px: falls back to display.pip if display.mobile.pip is not set
+  return pipConfig.display?.mobile?.pip?.onClick || pipConfig.display?.pip?.onClick || pipConfig.mobileAction || 'open_details';
+}
+
