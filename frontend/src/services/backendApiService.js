@@ -196,4 +196,51 @@ export async function simulateNativeDisplayEventOnBackend(params = {}) {
   return parseJsonResponse(response, 'Failed to simulate native display event');
 }
 
+// --- WEB INBOX CLIENT API ---
+
+// Fetches all Web Inbox messages for a given user from SQLite
+export async function fetchInboxMessagesFromBackend(userId = 'usr_elena_vance') {
+  const response = await fetch(`${API_BASE_URL}/inbox/messages?userId=${encodeURIComponent(userId)}`);
+  return parseJsonResponse(response, 'Failed to fetch inbox messages');
+}
+
+// Marks a single inbox message as read
+export async function markInboxMessageReadOnBackend(msgId, userId = 'usr_elena_vance') {
+  const response = await fetch(`${API_BASE_URL}/inbox/messages/${encodeURIComponent(msgId)}/read`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId })
+  });
+  return parseJsonResponse(response, 'Failed to mark inbox message as read');
+}
+
+// Marks all inbox messages as read
+export async function markAllInboxMessagesReadOnBackend(userId = 'usr_elena_vance') {
+  const response = await fetch(`${API_BASE_URL}/inbox/messages/read-all`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId })
+  });
+  return parseJsonResponse(response, 'Failed to mark all inbox messages as read');
+}
+
+// Deletes a single inbox message from SQLite
+export async function deleteInboxMessageOnBackend(msgId, userId = 'usr_elena_vance') {
+  const response = await fetch(`${API_BASE_URL}/inbox/messages/${encodeURIComponent(msgId)}?userId=${encodeURIComponent(userId)}`, {
+    method: 'DELETE'
+  });
+  return parseJsonResponse(response, 'Failed to delete inbox message');
+}
+
+// Injects a realistic simulated notification into Web Inbox
+export async function simulateIncomingInboxNotificationOnBackend(payload = {}) {
+  const response = await fetch(`${API_BASE_URL}/inbox/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse(response, 'Failed to simulate incoming inbox notification');
+}
+
+
 

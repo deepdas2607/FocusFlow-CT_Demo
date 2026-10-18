@@ -22,6 +22,8 @@ import WebPopupsStudioView from '../views/WebPopupsStudioView';
 import WebPopupsOverlayView from '../views/WebPopupsOverlayView';
 import WebPushStudioView from '../views/WebPushStudioView';
 import WebNativeDisplayStudioView from '../views/WebNativeDisplayStudioView';
+import WebInboxStudioView from '../views/WebInboxStudioView';
+import WebInboxOverlayView from '../views/WebInboxOverlayView';
 
 export default function FocusFlowAppPage() {
   const vm = useFocusFlowViewModel();
@@ -54,10 +56,53 @@ export default function FocusFlowAppPage() {
         isProUser={vm.isProUser}
         onOpenProModal={() => vm.setIsProModalOpen(true)}
         onSignOut={vm.handleSignOut}
+        inboxUnreadCount={vm.inboxUnreadCount}
       />
 
       {/* 2. Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Global Top Navigation Bar with Official CleverTap Web Inbox Bell */}
+        <header className="h-16 bg-white border-b border-slate-200 px-6 sm:px-8 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">FocusFlow</span>
+            <span className="text-slate-300">/</span>
+            <span className="text-sm font-bold text-slate-800 capitalize">
+              {vm.activeTab === 'native' ? 'Web Native Display' : vm.activeTab === 'inbox' ? 'Web Inbox' : vm.activeTab}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Official Web Inbox Bell Element ID: #ct-inbox-bell-trigger */}
+            <button
+              id="ct-inbox-bell-trigger"
+              type="button"
+              onClick={vm.handleToggleInbox}
+              className={`relative p-2.5 rounded-xl border transition-all cursor-pointer ${
+                vm.isInboxOpen
+                  ? 'border-indigo-600 bg-indigo-50 text-indigo-600 shadow-2xs'
+                  : 'border-slate-200 hover:border-slate-300 bg-white text-slate-600 hover:text-slate-900'
+              }`}
+              title="Click to toggle Web Inbox window"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              {vm.inboxUnreadCount > 0 && (
+                <span
+                  id="unviewedBadge"
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-xs"
+                >
+                  {vm.inboxUnreadCount > 9 ? '9+' : vm.inboxUnreadCount}
+                </span>
+              )}
+            </button>
+
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-mono font-semibold text-slate-600">eu1</span>
+            </div>
+          </div>
+        </header>
         {/* Top Status / Feedback Bar */}
         {(vm.statusMessage || vm.errorMessage) && (
           <div className="px-6 pt-4">
@@ -202,6 +247,26 @@ export default function FocusFlowAppPage() {
               campaignsList={vm.nativeCampaignsList}
             />
           )}
+
+          {vm.activeTab === 'inbox' && (
+            <WebInboxStudioView
+              inboxMessages={vm.inboxMessages}
+              unreadCount={vm.inboxUnreadCount}
+              isInboxOpen={vm.isInboxOpen}
+              onToggleInbox={vm.handleToggleInbox}
+              inboxPosition={vm.inboxPosition}
+              onSetPosition={vm.handleSetInboxPosition}
+              inboxStyles={vm.inboxStyles}
+              onUpdateStyles={vm.handleUpdateInboxStyles}
+              onSimulateIncomingMessage={vm.handleSimulateIncomingInboxMessage}
+              onMarkRead={vm.handleMarkInboxMessageRead}
+              onMarkAllRead={vm.handleMarkAllInboxMessagesRead}
+              onDeleteMessage={vm.handleDeleteInboxMessage}
+              onNotificationClicked={vm.handleInboxNotificationClicked}
+              apiSuiteResults={vm.inboxApiTestResult}
+              onRunApiTest={vm.handleRunInboxApiTest}
+            />
+          )}
         </main>
       </div>
 
@@ -212,6 +277,21 @@ export default function FocusFlowAppPage() {
         onClose={vm.handleCloseActivePopup}
         onActionClick={vm.handlePopupActionClicked}
         onPipControl={vm.handlePipControl}
+      />
+
+      {/* Official CleverTap Web Inbox Window (<ct-web-inbox>) */}
+      <WebInboxOverlayView
+        isOpen={vm.isInboxOpen}
+        onClose={vm.handleCloseInbox}
+        messages={vm.inboxMessages}
+        unreadCount={vm.inboxUnreadCount}
+        positionStyle={vm.inboxPositionStyle}
+        inboxStyles={vm.inboxStyles}
+        onNotificationViewed={vm.handleInboxNotificationViewed}
+        onNotificationClicked={vm.handleInboxNotificationClicked}
+        onMarkRead={vm.handleMarkInboxMessageRead}
+        onMarkAllRead={vm.handleMarkAllInboxMessagesRead}
+        onDeleteMessage={vm.handleDeleteInboxMessage}
       />
 
       {/* 3. Collapsible Right-Side Live Activity & Payload Inspector */}

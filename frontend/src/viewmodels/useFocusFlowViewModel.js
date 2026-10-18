@@ -32,7 +32,12 @@ import {
   simulatePushNotificationOnBackend,
   fetchNativeDisplayCampaignsFromBackend,
   resolveNativeDisplayPrioritiesOnBackend,
-  simulateNativeDisplayEventOnBackend
+  simulateNativeDisplayEventOnBackend,
+  fetchInboxMessagesFromBackend,
+  markInboxMessageReadOnBackend,
+  markAllInboxMessagesReadOnBackend,
+  deleteInboxMessageOnBackend,
+  simulateIncomingInboxNotificationOnBackend
 } from '../services/backendApiService';
 import {
   CLEVERTAP_EVENTS,
@@ -82,7 +87,20 @@ import {
   renderCartDropOffPersonalisationCampaign,
   renderStreakPersonalisationCampaign,
   renderProOfferPersonalisationCampaign,
-  resolveNativeDisplayPriorities
+  resolveNativeDisplayPriorities,
+  INBOX_POSITION_MODES,
+  setCleverTapInboxMessages,
+  getCleverTapInboxMessageCount,
+  getCleverTapInboxMessageUnreadCount,
+  getAllCleverTapInboxMessages,
+  getUnreadCleverTapInboxMessages,
+  getCleverTapInboxMessageForId,
+  deleteCleverTapInboxMessage,
+  markReadCleverTapInboxMessage,
+  markReadAllCleverTapInboxMessages,
+  renderCleverTapInboxNotificationViewed,
+  renderCleverTapInboxNotificationClicked,
+  calculateWebInboxPosition
 } from '../services/clevertapSdkService';
 
 export function useFocusFlowViewModel() {
@@ -143,6 +161,18 @@ export function useFocusFlowViewModel() {
   const [priorityResults, setPriorityResults] = useState(null);
   const [isResolvingPriority, setIsResolvingPriority] = useState(false);
 
+  // Web Inbox (<ct-web-inbox>) state
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+  const [inboxMessages, setInboxMessages] = useState([]);
+  const [inboxPosition, setInboxPosition] = useState(INBOX_POSITION_MODES.TOP_RIGHT);
+  const [inboxStyles, setInboxStyles] = useState({
+    width: '392px',
+    height: '546px',
+    fontFamily: 'inherit'
+  });
+  const [inboxPositionStyle, setInboxPositionStyle] = useState({});
+  const [inboxApiTestResult, setInboxApiTestResult] = useState(null);
+
   // Core Data state loaded from SQLite Backend
   const [user, setUser] = useState(createEmptyUserModel());
   const [tasks, setTasks] = useState([]);
@@ -194,23 +224,29 @@ export function useFocusFlowViewModel() {
     try {
       const loadedUser = await fetchUserProfileFromBackend(targetUserId);
       const userId = loadedUser.id;
-      const [loadedDashboard, loadedTasks, loadedSessions] = await Promise.all([
+      const [loadedDashboard, loadedTasks, loadedSessions, loadedInbox] = await Promise.all([
         fetchDashboardFromBackend(userId),
         fetchTasksFromBackend(userId),
-        fetchSessionsFromBackend(userId)
+        fetchSessionsFromBackend(userId),
+        fetchInboxMessagesFromBackend(userId).catch(() => ({ messages: [] }))
       ]);
 
       setUser(loadedUser);
       setDashboard(loadedDashboard);
       setTasks(loadedTasks);
       setSessions(loadedSessions);
+      if (loadedInbox?.messages) {
+        setInboxMessages(loadedInbox.messages);
+        setCleverTapInboxMessages(loadedInbox.messages);
+      }
 
-      addActivityLog('BACKEND_SQLITE', 'GET /api/dashboard & /api/tasks', {
+      addActivityLog('BACKEND_SQLITE', 'GET /api/dashboard, /api/tasks & /api/inbox/messages', {
         database: 'SQLite (focusflow.db)',
         userId: loadedUser.id,
         email: loadedUser.email,
         tasksCount: loadedTasks.length,
-        sessionsCount: loadedSessions.length
+        sessionsCount: loadedSessions.length,
+        inboxCount: loadedInbox?.messages?.length || 0
       });
 
       return { loadedUser, loadedDashboard };
@@ -841,6 +877,220 @@ export function useFocusFlowViewModel() {
     }
   }
 
+  // --- WEB INBOX (<ct-web-inbox>) ACTIONS ---
+
+  // Toggles the Web Inbox window open/closed relative to #ct-inbox-bell-trigger
+  function handleToggleInbox() {
+    setIsInboxOpen((prev) => {
+      const nextState = !prev;
+      if (nextState && typeof window !== 'undefined') {
+        const bellEl = window.document.getElementById('ct-inbox-bell-trigger');
+        if (bellEl) {
+          const rect = bellEl.getBoundingClientRect();
+          const posStyle = calculateWebInboxPosition(rect, inboxPosition, {
+            width: parseInt(inboxStyles.width, 10) || 392,
+            height: parseInt(inboxStyles.height, 10) || 546
+          });
+          setInboxPositionStyle(posStyle);
+        }
+      }
+      addActivityLog('CLEVERTAP_INBOX', `Web Inbox ${nextState ? 'OPENED' : 'CLOSED'}`, {
+        isOpen: nextState,
+        inboxPosition,
+        unreadCount: inboxMessages.filter((m) => !m.isRead).length
+      });
+      return nextState;
+    });
+  }
+
+  function handleCloseInbox() {
+    setIsInboxOpen(false);
+    addActivityLog('CLEVERTAP_INBOX', 'Web Inbox CLOSED (Outside click or close button)', {
+      isOpen: false
+    });
+  }
+
+  function handleSetInboxPosition(newPosition) {
+    setInboxPosition(newPosition);
+    if (typeof window !== 'undefined') {
+      const bellEl = window.document.getElementById('ct-inbox-bell-trigger');
+      if (bellEl) {
+        const rect = bellEl.getBoundingClientRect();
+        const posStyle = calculateWebInboxPosition(rect, newPosition, {
+          width: parseInt(inboxStyles.width, 10) || 392,
+          height: parseInt(inboxStyles.height, 10) || 546
+        });
+        setInboxPositionStyle(posStyle);
+      }
+    }
+    showStatusToast(`Inbox position set to: ${newPosition}`);
+    addActivityLog('CLEVERTAP_INBOX', `Updated Inbox Position Anchor -> ${newPosition}`, {
+      position: newPosition
+    });
+  }
+
+  function handleUpdateInboxStyles(styleUpdates) {
+    setInboxStyles((prev) => {
+      const updated = { ...prev, ...styleUpdates };
+      if (typeof window !== 'undefined') {
+        const bellEl = window.document.getElementById('ct-inbox-bell-trigger');
+        if (bellEl) {
+          const rect = bellEl.getBoundingClientRect();
+          const posStyle = calculateWebInboxPosition(rect, inboxPosition, {
+            width: parseInt(updated.width, 10) || 392,
+            height: parseInt(updated.height, 10) || 546
+          });
+          setInboxPositionStyle(posStyle);
+        }
+      }
+      return updated;
+    });
+    showStatusToast('Web Inbox styles updated');
+    addActivityLog('CLEVERTAP_INBOX', 'Updated Web Inbox CSS Properties', styleUpdates);
+  }
+
+  // Marks a single message as read
+  async function handleMarkInboxMessageRead(msgId) {
+    markReadCleverTapInboxMessage(msgId);
+    setInboxMessages((prev) =>
+      prev.map((m) => (m.msgId === msgId || m.id === msgId ? { ...m, isRead: true } : m))
+    );
+    try {
+      await markInboxMessageReadOnBackend(msgId, user.id);
+    } catch (err) {
+      console.warn('[ViewModel] markInboxMessageRead error:', err);
+    }
+    addActivityLog('CLEVERTAP_INBOX', `clevertap.markReadInboxMessage("${msgId}")`, { msgId });
+  }
+
+  // Marks all messages as read
+  async function handleMarkAllInboxMessagesRead() {
+    markReadAllCleverTapInboxMessages();
+    setInboxMessages((prev) => prev.map((m) => ({ ...m, isRead: true })));
+    try {
+      await markAllInboxMessagesReadOnBackend(user.id);
+    } catch (err) {
+      console.warn('[ViewModel] markAllInboxMessagesRead error:', err);
+    }
+    showStatusToast('All inbox messages marked as read');
+    addActivityLog('CLEVERTAP_INBOX', 'clevertap.markReadAllInboxMessage()', { markedAll: true });
+  }
+
+  // Deletes a single message
+  async function handleDeleteInboxMessage(msgId) {
+    deleteCleverTapInboxMessage(msgId);
+    setInboxMessages((prev) => prev.filter((m) => m.msgId !== msgId && m.id !== msgId));
+    try {
+      await deleteInboxMessageOnBackend(msgId, user.id);
+    } catch (err) {
+      console.warn('[ViewModel] deleteInboxMessage error:', err);
+    }
+    showStatusToast('Notification deleted from Web Inbox');
+    addActivityLog('CLEVERTAP_INBOX', `clevertap.deleteInboxMessage("${msgId}")`, { msgId });
+  }
+
+  // Tracks Notification Viewed (raised only ONCE per message according to CleverTap spec)
+  function handleInboxNotificationViewed(messageData) {
+    const result = renderCleverTapInboxNotificationViewed(messageData);
+    if (result.status === 'VIEWED_RECORDED') {
+      addActivityLog('CLEVERTAP_INBOX', 'clevertap.renderNotificationViewed() [Inbox Message]', result);
+    }
+  }
+
+  // Tracks Notification Clicked (raised each time the user clicks on the message)
+  function handleInboxNotificationClicked(messageData) {
+    const result = renderCleverTapInboxNotificationClicked(messageData);
+    setInboxMessages((prev) =>
+      prev.map((m) =>
+        m.msgId === messageData.msgId || m.id === messageData.id ? { ...m, isRead: true } : m
+      )
+    );
+    markInboxMessageReadOnBackend(messageData.msgId || messageData.id, user.id).catch(() => {});
+    addActivityLog('CLEVERTAP_INBOX', 'clevertap.renderNotificationClicked() [Inbox Message]', result);
+    showStatusToast(`Notification Clicked tracked for "${messageData.title}"`);
+  }
+
+  // Simulates an incoming Web Inbox notification
+  async function handleSimulateIncomingInboxMessage(payload) {
+    try {
+      const response = await simulateIncomingInboxNotificationOnBackend({
+        ...payload,
+        userId: user.id
+      });
+      if (response?.data) {
+        setInboxMessages((prev) => [response.data, ...prev]);
+        setCleverTapInboxMessages([response.data, ...inboxMessages]);
+        addActivityLog('CLEVERTAP_INBOX', 'Injected Simulated Web Inbox Notification', response.data);
+        showStatusToast(`New Web Inbox message received: "${response.data.title}"`);
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to simulate incoming inbox notification');
+    }
+  }
+
+  // Runs a live test of one of the 10 official JavaScript APIs
+  function handleRunInboxApiTest(apiName) {
+    let result = null;
+    const firstMsg = inboxMessages[0];
+    const firstId = firstMsg?.msgId || firstMsg?.id || 'inbox_msg_001';
+
+    switch (apiName) {
+      case 'getInboxMessageCount':
+        result = { method: 'clevertap.getInboxMessageCount()', count: getCleverTapInboxMessageCount() };
+        break;
+      case 'getInboxMessageUnreadCount':
+        result = {
+          method: 'clevertap.getInboxMessageUnreadCount()',
+          unreadCount: getCleverTapInboxMessageUnreadCount()
+        };
+        break;
+      case 'getAllInboxMessages':
+        result = { method: 'clevertap.getAllInboxMessages()', messages: getAllCleverTapInboxMessages() };
+        break;
+      case 'getUnreadInboxMessages':
+        result = {
+          method: 'clevertap.getUnreadInboxMessages()',
+          unreadMessages: getUnreadCleverTapInboxMessages()
+        };
+        break;
+      case 'getInboxMessageForId':
+        result = {
+          method: `clevertap.getInboxMessageForId("${firstId}")`,
+          message: getCleverTapInboxMessageForId(firstId)
+        };
+        break;
+      case 'markReadInboxMessage':
+        handleMarkInboxMessageRead(firstId);
+        result = { method: `clevertap.markReadInboxMessage("${firstId}")`, success: true };
+        break;
+      case 'markReadAllInboxMessage':
+        handleMarkAllInboxMessagesRead();
+        result = { method: 'clevertap.markReadAllInboxMessage()', success: true };
+        break;
+      case 'deleteInboxMessage':
+        handleDeleteInboxMessage(firstId);
+        result = { method: `clevertap.deleteInboxMessage("${firstId}")`, success: true };
+        break;
+      case 'renderNotificationViewed':
+        result = renderCleverTapInboxNotificationViewed(
+          firstMsg || { msgId: 'inbox_msg_001', wzrk_pivot: 'pivot_demo' }
+        );
+        break;
+      case 'renderNotificationClicked':
+        result = renderCleverTapInboxNotificationClicked(
+          firstMsg || { msgId: 'inbox_msg_001', wzrk_pivot: 'pivot_demo' }
+        );
+        break;
+      default:
+        result = { status: 'UNKNOWN_API' };
+        break;
+    }
+
+    setInboxApiTestResult(result);
+    addActivityLog('CLEVERTAP_INBOX', `API Tested: ${apiName}`, result);
+    showStatusToast(`Executed ${apiName}()`);
+  }
+
   // --- AUTHENTICATION & IDENTITY ACTIONS (clevertap.onUserLogin.push) ---
 
   // Registers a new user in SQLite and identifies them via clevertap.onUserLogin.push
@@ -1405,6 +1655,26 @@ export function useFocusFlowViewModel() {
     handleTriggerNativeTopic,
     handleResetNativeFallback,
     handleNativeElementActionClicked,
-    handleResolveNativePriorities
+    handleResolveNativePriorities,
+
+    // Web Inbox (<ct-web-inbox>) state & handlers
+    isInboxOpen,
+    inboxMessages,
+    inboxUnreadCount: inboxMessages.filter((m) => !m.isRead).length,
+    inboxPosition,
+    inboxStyles,
+    inboxPositionStyle,
+    inboxApiTestResult,
+    handleToggleInbox,
+    handleCloseInbox,
+    handleSetInboxPosition,
+    handleUpdateInboxStyles,
+    handleMarkInboxMessageRead,
+    handleMarkAllInboxMessagesRead,
+    handleDeleteInboxMessage,
+    handleInboxNotificationViewed,
+    handleInboxNotificationClicked,
+    handleSimulateIncomingInboxMessage,
+    handleRunInboxApiTest
   };
 }

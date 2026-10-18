@@ -34,6 +34,13 @@ const {
   handleResolveCampaignPriorities,
   handleSimulateNativeEvent
 } = require('../controllers/webNativeDisplayController');
+const {
+  handleGetInboxMessages,
+  handleMarkMessageRead,
+  handleMarkAllMessagesRead,
+  handleDeleteInboxMessage,
+  handleSimulateIncomingInboxMessage
+} = require('../controllers/webInboxController');
 
 const router = express.Router();
 
@@ -66,5 +73,12 @@ router.post('/push/simulate', handleSimulatePushNotification);
 router.get('/native/campaigns', handleGetNativeCampaigns);
 router.post('/native/resolve-priority', handleResolveCampaignPriorities);
 router.post('/native/simulate-event', handleSimulateNativeEvent);
+
+// --- WEB INBOX ROUTES ---
+router.get('/inbox/messages', handleGetInboxMessages);
+router.patch('/inbox/messages/read-all', handleMarkAllMessagesRead);
+router.patch('/inbox/messages/:msgId/read', handleMarkMessageRead);
+router.delete('/inbox/messages/:msgId', handleDeleteInboxMessage);
+router.post('/inbox/simulate', handleSimulateIncomingInboxMessage);
 
 module.exports = router;

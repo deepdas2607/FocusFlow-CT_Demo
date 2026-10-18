@@ -71,6 +71,26 @@ function initializeDatabaseTables() {
       completedAt TEXT DEFAULT NULL,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    -- 5. INBOX MESSAGES TABLE: Stores Web Inbox notifications per user
+    CREATE TABLE IF NOT EXISTS inbox_messages (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      msgId TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      template TEXT DEFAULT 'text_icon',
+      iconUrl TEXT DEFAULT '',
+      imageUrl TEXT DEFAULT '',
+      actionUrl TEXT DEFAULT '',
+      actionText TEXT DEFAULT 'View',
+      isRead INTEGER DEFAULT 0,
+      isViewed INTEGER DEFAULT 0,
+      wzrk_pivot TEXT DEFAULT 'wzrk_default',
+      tags TEXT DEFAULT 'all',
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 }
 

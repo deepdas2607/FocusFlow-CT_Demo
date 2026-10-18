@@ -1346,5 +1346,306 @@ export function resolveNativeDisplayPriorities(campaigns = []) {
   };
 }
 
+// ============================================================================
+// WEB INBOX (CleverTap Web Inbox Official Guide)
+// Documentation: https://developer.clevertap.com/docs/web-inbox
+// ============================================================================
+
+export const INBOX_POSITION_MODES = {
+  TOP_RIGHT: 'top-right',
+  TOP_LEFT: 'top-left',
+  BOTTOM_RIGHT: 'bottom-right',
+  BOTTOM_LEFT: 'bottom-left',
+  TOP_CENTER: 'top-center',
+  BOTTOM_CENTER: 'bottom-center',
+  LEFT_CENTER: 'left-center',
+  RIGHT_CENTER: 'right-center'
+};
+
+// In-memory / browser synchronized store for Web Inbox messages
+let _inboxMessagesStore = [];
+const _viewedMessageIdsSet = new Set();
+
+// Synchronizes the local message store with data loaded from SQLite or CleverTap
+export function setCleverTapInboxMessages(messages = []) {
+  _inboxMessagesStore = Array.isArray(messages) ? [...messages] : [];
+  bindCleverTapWebInboxApisToWindow();
+  return _inboxMessagesStore;
+}
+
+// 1. clevertap.getInboxMessageCount() — Get Total Inbox Message Count
+export function getCleverTapInboxMessageCount() {
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.getInboxMessageCount === 'function' && clevertap.getInboxMessageCount() > 0) {
+    return clevertap.getInboxMessageCount();
+  }
+  return _inboxMessagesStore.length;
+}
+
+// 2. clevertap.getInboxMessageUnreadCount() — Get Inbox Unread Message Count
+export function getCleverTapInboxMessageUnreadCount() {
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.getInboxMessageUnreadCount === 'function' && clevertap.getInboxMessageUnreadCount() > 0) {
+    return clevertap.getInboxMessageUnreadCount();
+  }
+  return _inboxMessagesStore.filter((m) => !m.isRead).length;
+}
+
+// 3. clevertap.getAllInboxMessages() — Get All Inbox Messages
+export function getAllCleverTapInboxMessages() {
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.getAllInboxMessages === 'function') {
+    const sdkMsgs = clevertap.getAllInboxMessages();
+    if (Array.isArray(sdkMsgs) && sdkMsgs.length > 0) return sdkMsgs;
+  }
+  return [..._inboxMessagesStore];
+}
+
+// 4. clevertap.getUnreadInboxMessages() — Get only Unread messages
+export function getUnreadCleverTapInboxMessages() {
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.getUnreadInboxMessages === 'function') {
+    const sdkMsgs = clevertap.getUnreadInboxMessages();
+    if (Array.isArray(sdkMsgs) && sdkMsgs.length > 0) return sdkMsgs;
+  }
+  return _inboxMessagesStore.filter((m) => !m.isRead);
+}
+
+// 5. clevertap.getInboxMessageForId(messageId) — Get message object belonging to given id
+export function getCleverTapInboxMessageForId(messageId) {
+  if (!messageId) return null;
+  const strId = String(messageId);
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.getInboxMessageForId === 'function') {
+    const found = clevertap.getInboxMessageForId(strId);
+    if (found) return found;
+  }
+  return _inboxMessagesStore.find((m) => m.msgId === strId || m.id === strId) || null;
+}
+
+// 6. clevertap.deleteInboxMessage(messageId) — Delete message from Inbox
+export function deleteCleverTapInboxMessage(messageId) {
+  if (!messageId) return false;
+  const strId = String(messageId);
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.deleteInboxMessage === 'function') {
+    try {
+      clevertap.deleteInboxMessage(strId);
+    } catch {
+      // Continue to local sync
+    }
+  }
+  const initialLen = _inboxMessagesStore.length;
+  _inboxMessagesStore = _inboxMessagesStore.filter((m) => m.msgId !== strId && m.id !== strId);
+  return _inboxMessagesStore.length < initialLen;
+}
+
+// 7. clevertap.markReadInboxMessage(messageId) — Mark Message as Read
+export function markReadCleverTapInboxMessage(messageId) {
+  if (!messageId) return false;
+  const strId = String(messageId);
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.markReadInboxMessage === 'function') {
+    try {
+      clevertap.markReadInboxMessage(strId);
+    } catch {
+      // Continue to local sync
+    }
+  }
+  let updated = false;
+  _inboxMessagesStore = _inboxMessagesStore.map((m) => {
+    if (m.msgId === strId || m.id === strId) {
+      updated = true;
+      return { ...m, isRead: true };
+    }
+    return m;
+  });
+  return updated;
+}
+
+// 8. clevertap.markReadAllInboxMessage() — Mark all messages as read
+export function markReadAllCleverTapInboxMessages() {
+  const clevertap = getCleverTapInstance();
+  if (clevertap && typeof clevertap.markReadAllInboxMessage === 'function') {
+    try {
+      clevertap.markReadAllInboxMessage();
+    } catch {
+      // Continue to local sync
+    }
+  }
+  _inboxMessagesStore = _inboxMessagesStore.map((m) => ({ ...m, isRead: true }));
+  return true;
+}
+
+// 9. TRACK NOTIFICATION VIEWED (Only raised ONCE for a given message)
+export function renderCleverTapInboxNotificationViewed(messageData) {
+  if (!messageData) return { status: 'NO_DATA' };
+  const msgId = messageData.msgId || messageData.id;
+  if (!msgId) return { status: 'NO_MSG_ID' };
+
+  // Strict Rule: Raised only ONCE for a given message
+  if (_viewedMessageIdsSet.has(msgId)) {
+    return {
+      status: 'ALREADY_VIEWED',
+      msgId,
+      message: 'Notification Viewed event was already raised for this message. Suppressing duplicate.'
+    };
+  }
+
+  _viewedMessageIdsSet.add(msgId);
+  const trackingPayload = {
+    msgId: String(msgId),
+    wzrk_pivot: messageData.wzrk_pivot || 'wzrk_default'
+  };
+
+  renderCleverTapNotificationViewed(trackingPayload);
+  return {
+    status: 'VIEWED_RECORDED',
+    msgId,
+    trackingPayload
+  };
+}
+
+// 10. TRACK NOTIFICATION CLICKED (Raised each time the user clicks on the message)
+export function renderCleverTapInboxNotificationClicked(messageData) {
+  if (!messageData) return { status: 'NO_DATA' };
+  const msgId = messageData.msgId || messageData.id;
+
+  const trackingPayload = {
+    msgId: String(msgId || 'inbox_default'),
+    wzrk_pivot: messageData.wzrk_pivot || 'wzrk_default',
+    ...(messageData.actionUrl ? { actionUrl: messageData.actionUrl } : {})
+  };
+
+  renderCleverTapNotificationClicked(trackingPayload);
+  markReadCleverTapInboxMessage(msgId);
+
+  return {
+    status: 'CLICKED_RECORDED',
+    msgId,
+    trackingPayload
+  };
+}
+
+// 11. 8 POSITIONING MODES CALCULATOR WITH RESPECT TO THE BELL ICON
+// Given the bounding rect of the bell icon, computes exact CSS fixed coordinates.
+export function calculateWebInboxPosition(bellRect, positionMode = 'top-right', customDimensions = {}) {
+  const width = customDimensions.width || 392;
+  const height = customDimensions.height || 546;
+  const gap = 8; // 8px spacing from trigger
+
+  if (!bellRect || typeof window === 'undefined') {
+    return {
+      position: 'fixed',
+      top: '64px',
+      right: '24px',
+      width: `${width}px`,
+      maxHeight: `${height}px`,
+      zIndex: 50
+    };
+  }
+
+  const winWidth = window.innerWidth;
+  const winHeight = window.innerHeight;
+
+  // On Mobile Viewports (<= 480px), documentation specifies occupying entire width & height
+  if (winWidth <= 480) {
+    return {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: '100vw',
+      height: '100vh',
+      maxHeight: '100vh',
+      zIndex: 50
+    };
+  }
+
+  const coords = {
+    position: 'fixed',
+    width: `${width}px`,
+    maxHeight: `${height}px`,
+    zIndex: 50
+  };
+
+  switch (positionMode) {
+    case INBOX_POSITION_MODES.TOP_RIGHT:
+      // Right side just below the bell icon
+      coords.top = `${Math.min(winHeight - height - 16, bellRect.bottom + gap)}px`;
+      coords.right = `${Math.max(16, winWidth - bellRect.right)}px`;
+      break;
+
+    case INBOX_POSITION_MODES.TOP_LEFT:
+      // Left side just below the bell icon
+      coords.top = `${Math.min(winHeight - height - 16, bellRect.bottom + gap)}px`;
+      coords.left = `${Math.max(16, bellRect.left)}px`;
+      break;
+
+    case INBOX_POSITION_MODES.BOTTOM_RIGHT:
+      // Right side just above the bell icon
+      coords.bottom = `${Math.max(16, winHeight - bellRect.top + gap)}px`;
+      coords.right = `${Math.max(16, winWidth - bellRect.right)}px`;
+      break;
+
+    case INBOX_POSITION_MODES.BOTTOM_LEFT:
+      // Left side just above the bell icon
+      coords.bottom = `${Math.max(16, winHeight - bellRect.top + gap)}px`;
+      coords.left = `${Math.max(16, bellRect.left)}px`;
+      break;
+
+    case INBOX_POSITION_MODES.TOP_CENTER:
+      // Just below the bell icon, horizontally centered on bell
+      coords.top = `${Math.min(winHeight - height - 16, bellRect.bottom + gap)}px`;
+      coords.left = `${Math.max(16, Math.min(winWidth - width - 16, bellRect.left + bellRect.width / 2 - width / 2))}px`;
+      break;
+
+    case INBOX_POSITION_MODES.BOTTOM_CENTER:
+      // Just above the bell icon, horizontally centered on bell
+      coords.bottom = `${Math.max(16, winHeight - bellRect.top + gap)}px`;
+      coords.left = `${Math.max(16, Math.min(winWidth - width - 16, bellRect.left + bellRect.width / 2 - width / 2))}px`;
+      break;
+
+    case INBOX_POSITION_MODES.LEFT_CENTER:
+      // To the right of the bell icon, vertically aligned
+      coords.top = `${Math.max(16, Math.min(winHeight - height - 16, bellRect.top + bellRect.height / 2 - height / 2))}px`;
+      coords.left = `${Math.min(winWidth - width - 16, bellRect.right + gap)}px`;
+      break;
+
+    case INBOX_POSITION_MODES.RIGHT_CENTER:
+      // To the left of the bell icon, vertically aligned
+      coords.top = `${Math.max(16, Math.min(winHeight - height - 16, bellRect.top + bellRect.height / 2 - height / 2))}px`;
+      coords.right = `${Math.max(16, winWidth - bellRect.left + gap)}px`;
+      break;
+
+    default:
+      coords.top = `${bellRect.bottom + gap}px`;
+      coords.right = `${Math.max(16, winWidth - bellRect.right)}px`;
+      break;
+  }
+
+  return coords;
+}
+
+// Binds Web Inbox APIs directly onto window.clevertap so external scripts can access them
+export function bindCleverTapWebInboxApisToWindow() {
+  if (typeof window === 'undefined') return;
+
+  if (!window.clevertap) {
+    window.clevertap = {};
+  }
+
+  window.clevertap.getInboxMessageCount = getCleverTapInboxMessageCount;
+  window.clevertap.getInboxMessageUnreadCount = getCleverTapInboxMessageUnreadCount;
+  window.clevertap.getAllInboxMessages = getAllCleverTapInboxMessages;
+  window.clevertap.getUnreadInboxMessages = getUnreadCleverTapInboxMessages;
+  window.clevertap.getInboxMessageForId = getCleverTapInboxMessageForId;
+  window.clevertap.deleteInboxMessage = deleteCleverTapInboxMessage;
+  window.clevertap.markReadInboxMessage = markReadCleverTapInboxMessage;
+  window.clevertap.markReadAllInboxMessage = markReadAllCleverTapInboxMessages;
+}
+
+
 
 
