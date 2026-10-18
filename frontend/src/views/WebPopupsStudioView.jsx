@@ -791,3 +791,4 @@ window.parent.clevertap.raisePopupNotificationClicked(notificationObj);`}</pre>
     </div>
   );
 }
+

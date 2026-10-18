@@ -828,3 +828,313 @@ export function resolvePipClickAction(pipConfig = {}) {
   return pipConfig.display?.mobile?.pip?.onClick || pipConfig.display?.pip?.onClick || pipConfig.mobileAction || 'open_details';
 }
 
+// ============================================================================
+// 17. WEB PUSH (VAPID PROTOCOL, SOFT PROMPT, SERVICE WORKER & PERMISSIONS)
+// Official Documentation: https://developer.clevertap.com/docs/web-push
+// ============================================================================
+
+// 17.1 CHECK CLEVERTAP SDK VERSION (VAPID requires >= 1.1.0, Custom VAPID + Soft Prompt >= 2.7.1)
+export function getCleverTapSdkVersion() {
+  const clevertap = getCleverTapInstance();
+  let rawVersion = '3.0.3';
+  if (clevertap && typeof clevertap.getSDKVersion === 'function') {
+    try {
+      rawVersion = clevertap.getSDKVersion();
+    } catch {
+      rawVersion = '3.0.3';
+    }
+  }
+
+  // Parse numeric version, e.g. "web-sdk-v3.0.3" -> "3.0.3"
+  const cleanVersion = String(rawVersion).replace(/^[^\d]*/, '');
+  const [major = 3, minor = 0, patch = 0] = cleanVersion.split('.').map(Number);
+
+  const meetsVapidRequirement = major > 1 || (major === 1 && minor >= 1);
+  const meetsCustomVapidSoftPrompt = major > 2 || (major === 2 && (minor > 7 || (minor === 7 && patch >= 1)));
+
+  return {
+    raw: rawVersion,
+    version: cleanVersion,
+    major,
+    minor,
+    patch,
+    meetsVapidRequirement, // >= 1.1.0
+    meetsCustomVapidSoftPrompt // >= 2.7.1
+  };
+}
+
+// 17.2 BROWSER COMPATIBILITY & FEATURE MATRIX DETECTOR
+// Evaluates Chrome, Firefox, Safari capabilities against official CleverTap documentation
+export function getBrowserWebPushSupport() {
+  if (typeof window === 'undefined') {
+    return {
+      supported: false,
+      browser: 'SSR',
+      os: 'unknown',
+      secureOrigin: false,
+      serviceWorker: false,
+      pushManager: false,
+      notificationApi: false,
+      features: {}
+    };
+  }
+
+  const ua = window.navigator.userAgent || '';
+  const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+  // Detect OS
+  let os = 'other';
+  if (/iPhone|iPad|iPod/i.test(ua)) os = 'ios';
+  else if (/Android/i.test(ua)) os = 'android';
+  else if (/Macintosh|Mac OS X/i.test(ua)) os = 'macos';
+  else if (/Windows NT/i.test(ua)) os = 'windows';
+  else if (/Linux/i.test(ua)) os = 'linux';
+
+  // Detect Browser & Version
+  let browser = 'other';
+  let version = 0;
+
+  if (/Edg\//i.test(ua)) {
+    browser = 'edge';
+    const match = ua.match(/Edg\/(\d+)/);
+    if (match) version = parseInt(match[1], 10);
+  } else if (/Chrome\//i.test(ua) && !/Chromium|Edg/i.test(ua)) {
+    browser = 'chrome';
+    const match = ua.match(/Chrome\/(\d+)/);
+    if (match) version = parseInt(match[1], 10);
+  } else if (/Firefox\//i.test(ua)) {
+    browser = 'firefox';
+    const match = ua.match(/Firefox\/(\d+)/);
+    if (match) version = parseInt(match[1], 10);
+  } else if (/Safari\//i.test(ua) && !/Chrome|Chromium|Edg/i.test(ua)) {
+    browser = 'safari';
+    const match = ua.match(/Version\/(\d+)/);
+    if (match) version = parseInt(match[1], 10);
+  }
+
+  const hasServiceWorker = 'serviceWorker' in window.navigator;
+  const hasPushManager = 'PushManager' in window;
+  const hasNotificationApi = 'Notification' in window;
+
+  // iOS Safari requires Add to Home Screen (Standalone PWA mode) to register Web Push
+  const isIos = os === 'ios';
+  const isStandalonePwa = Boolean(
+    (window.navigator && window.navigator.standalone) ||
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+  );
+
+  // Supported browsers from docs:
+  // Chrome: v42+ (desktop and android)
+  // Firefox: v44+ (desktop), v48+ (android)
+  // Safari: v16+ (macOS), v16.4+ (iOS standalone)
+  let meetsBrowserVersion = false;
+  if (browser === 'chrome' && (version >= 42 || version === 0)) meetsBrowserVersion = true;
+  else if (browser === 'firefox' && (version >= 44 || version === 0)) meetsBrowserVersion = true;
+  else if (browser === 'safari' && (version >= 16 || version === 0)) {
+    meetsBrowserVersion = isIos ? (isStandalonePwa && (version >= 16 || version === 0)) : true;
+  } else if (browser === 'edge' && (version >= 79 || version === 0)) meetsBrowserVersion = true;
+
+  const supported = isSecure && hasServiceWorker && hasPushManager && hasNotificationApi;
+
+  // Features available across browsers (CleverTap Documentation Table)
+  const features = {
+    cta: browser === 'chrome' ? 'v53+ (desktop, android)' : 'No',
+    icon: browser === 'chrome'
+      ? 'v33+ (desktop), v42+ (android)'
+      : browser === 'firefox'
+        ? 'v26+ (desktop, android)'
+        : 'No',
+    image: browser === 'chrome' ? 'v56+ (desktop, android)' : 'No',
+    requiresInteraction: browser === 'chrome'
+      ? 'v47+ (desktop, android)'
+      : browser === 'firefox'
+        ? 'v117+ (desktop, android)'
+        : 'No'
+  };
+
+  return {
+    supported,
+    browser,
+    version,
+    os,
+    secureOrigin: isSecure,
+    serviceWorker: hasServiceWorker,
+    pushManager: hasPushManager,
+    notificationApi: hasNotificationApi,
+    isIos,
+    isStandalonePwa,
+    meetsBrowserVersion,
+    features,
+    serviceWorkerPath: '/clevertap_sw.js',
+    manifestPath: '/manifest.json'
+  };
+}
+
+// 17.3 NOTIFICATION PERMISSION STATE
+export function getNotificationPermissionStatus() {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return 'unsupported';
+  }
+  return window.Notification.permission; // 'default' | 'granted' | 'denied'
+}
+
+// 17.4 REQUEST NATIVE BROWSER PERMISSION DIRECTLY
+export async function requestNativeBrowserPermission() {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return 'unsupported';
+  }
+  try {
+    const result = await window.Notification.requestPermission();
+    return result;
+  } catch (error) {
+    console.warn('[CleverTap Web Push] Native permission request error:', error);
+    return window.Notification.permission;
+  }
+}
+
+// 17.5 REJECTION COOLDOWN & 1-WEEK FREQUENCY RULE CHECK
+// CleverTap API automatically suppresses clevertap.notifications.push if user rejected < 1 week ago
+const STORAGE_KEY_PUSH_REJECTED = 'ct_webpush_last_rejected_ts';
+
+export function getPushRejectionCooldown(askAgainTimeInSeconds = null) {
+  if (typeof window === 'undefined') return { inCooldown: false, remainingSeconds: 0 };
+  const raw = window.localStorage.getItem(STORAGE_KEY_PUSH_REJECTED);
+  if (!raw) return { inCooldown: false, remainingSeconds: 0 };
+
+  const lastRejectedMs = parseInt(raw, 10);
+  const nowMs = Date.now();
+  const elapsedSeconds = Math.floor((nowMs - lastRejectedMs) / 1000);
+
+  // Standard CleverTap cooldown is 1 week (7 days = 604800 seconds).
+  // If user passes askAgainTimeInSeconds (e.g. 5 seconds for testing), respect it.
+  const requiredCooldownSeconds = askAgainTimeInSeconds !== null && !isNaN(askAgainTimeInSeconds)
+    ? Number(askAgainTimeInSeconds)
+    : 7 * 24 * 60 * 60;
+
+  const remainingSeconds = Math.max(0, requiredCooldownSeconds - elapsedSeconds);
+  return {
+    inCooldown: remainingSeconds > 0,
+    remainingSeconds,
+    elapsedSeconds,
+    lastRejectedAt: new Date(lastRejectedMs).toISOString()
+  };
+}
+
+export function recordPushRejection(timestamp = Date.now()) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEY_PUSH_REJECTED, String(timestamp));
+}
+
+export function clearPushRejectionCooldown() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(STORAGE_KEY_PUSH_REJECTED);
+}
+
+// 17.6 REQUEST USER PERMISSION (SOFT PROMPT VIA clevertap.notifications.push)
+// Calling signature matching documentation:
+// clevertap.notifications.push({
+//   "titleText": "Would you like to receive Push Notifications?",
+//   "bodyText": "We promise to only send you relevant content and give you updates on your transactions",
+//   "okButtonText": "Sign me up!",
+//   "rejectButtonText": "No thanks",
+//   "okButtonColor": "#F28046",
+//   "askAgainTimeInSeconds": 5,
+//   "serviceWorkerPath": "/clevertap_sw.js"
+// });
+export function requestCleverTapPushPermission(customOptions = {}) {
+  const clevertap = getCleverTapInstance();
+
+  const options = {
+    titleText: customOptions.titleText || 'Would you like to receive Push Notifications?',
+    bodyText: customOptions.bodyText || 'We promise to only send you relevant content and give you updates on your transactions',
+    okButtonText: customOptions.okButtonText || 'Sign me up!',
+    rejectButtonText: customOptions.rejectButtonText || 'No thanks',
+    okButtonColor: customOptions.okButtonColor || '#4f46e5',
+    askAgainTimeInSeconds: customOptions.askAgainTimeInSeconds ?? 5,
+    serviceWorkerPath: customOptions.serviceWorkerPath || '/clevertap_sw.js',
+    skipDialog: Boolean(customOptions.skipDialog)
+  };
+
+  const cooldown = getPushRejectionCooldown(options.askAgainTimeInSeconds);
+
+  if (cooldown.inCooldown) {
+    console.log(`[CleverTap Web Push] Permission prompt suppressed by 1-week/cooldown frequency rule (${cooldown.remainingSeconds}s remaining).`);
+    return {
+      status: 'SUPPRESSED_COOLDOWN',
+      cooldown,
+      payload: options
+    };
+  }
+
+  if (clevertap) {
+    try {
+      if (!clevertap.notifications) {
+        clevertap.notifications = [];
+      }
+      clevertap.notifications.push(options);
+      console.log('[CleverTap Web Push] clevertap.notifications.push invoked with payload:', options);
+    } catch (error) {
+      console.warn('[CleverTap Web Push] Error invoking clevertap.notifications.push:', error);
+    }
+  }
+
+  return {
+    status: 'PROMPT_REQUESTED',
+    payload: options,
+    method: 'clevertap.notifications.push({...})'
+  };
+}
+
+// 17.7 TOKEN MIGRATION SIMULATION (Handling 3 Cases from Official Documentation)
+// Case 1: Existing Users - Registered with previous service provider -> Auto-migrated, soft prompt skipped
+// Case 2: Existing Users - Declined with previous service provider -> No token generated, soft prompt skipped
+// Case 3: New Users -> Soft prompt displayed, token generated on acceptance
+export function evaluateTokenMigration(scenario) {
+  switch (scenario) {
+    case 'registered':
+      return {
+        scenario: 'Case 1: Existing Users - Registered with previous provider',
+        showSoftPrompt: false,
+        tokenMigrated: true,
+        description: 'User already accepted Web Push on this domain through previous service provider. Soft-prompt is bypassed, and user token is automatically migrated to CleverTap.'
+      };
+    case 'declined':
+      return {
+        scenario: 'Case 2: Existing Users - Declined with previous provider',
+        showSoftPrompt: false,
+        tokenMigrated: false,
+        description: 'User previously declined notifications on this domain. Token is not generated and soft-prompt is not displayed.'
+      };
+    case 'new_user':
+    default:
+      return {
+        scenario: 'Case 3: New Users',
+        showSoftPrompt: true,
+        tokenMigrated: false,
+        description: 'Calling clevertap.notifications.push displays the soft-prompt. When accepted, a Web Push token is generated and registered with CleverTap.'
+      };
+  }
+}
+
+// 17.8 CHECK SERVICE WORKER REGISTRATION IN BROWSER
+export async function checkServiceWorkerRegistration(swPath = '/clevertap_sw.js') {
+  if (typeof window === 'undefined' || !('serviceWorker' in window.navigator)) {
+    return { registered: false, scope: null, reason: 'ServiceWorker unsupported' };
+  }
+  try {
+    const reg = await window.navigator.serviceWorker.getRegistration(swPath);
+    if (reg) {
+      return {
+        registered: true,
+        scope: reg.scope,
+        active: Boolean(reg.active),
+        state: reg.active ? reg.active.state : 'installing'
+      };
+    }
+    return { registered: false, scope: null, reason: 'Not yet registered' };
+  } catch (error) {
+    return { registered: false, scope: null, reason: error.message };
+  }
+}
+
+

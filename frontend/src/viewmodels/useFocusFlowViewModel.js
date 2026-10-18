@@ -25,7 +25,11 @@ import {
   deleteTaskOnBackend,
   fetchSessionsFromBackend,
   startSessionOnBackend,
-  finishSessionOnBackend
+  finishSessionOnBackend,
+  fetchVapidKeysFromBackend,
+  generateVapidKeysOnBackend,
+  fetchWebPushStatusFromBackend,
+  simulatePushNotificationOnBackend
 } from '../services/backendApiService';
 import {
   CLEVERTAP_EVENTS,
@@ -58,7 +62,17 @@ import {
   PIP_ANCHOR_POSITIONS,
   getPipPositionClasses,
   resolvePipClickAction,
-  getCleverTapInstance
+  getCleverTapInstance,
+  getCleverTapSdkVersion,
+  getBrowserWebPushSupport,
+  getNotificationPermissionStatus,
+  requestNativeBrowserPermission,
+  getPushRejectionCooldown,
+  recordPushRejection,
+  clearPushRejectionCooldown,
+  requestCleverTapPushPermission,
+  evaluateTokenMigration,
+  checkServiceWorkerRegistration
 } from '../services/clevertapSdkService';
 
 export function useFocusFlowViewModel() {
@@ -92,6 +106,25 @@ export function useFocusFlowViewModel() {
     spamBlockedCount: 0,
     exitIntentTriggers: 0
   });
+
+  // Web Push & VAPID Protocol state
+  const [pushPermissionStatus, setPushPermissionStatus] = useState('default');
+  const [sdkVersionInfo, setSdkVersionInfo] = useState(null);
+  const [browserPushSupport, setBrowserPushSupport] = useState(null);
+  const [vapidKeys, setVapidKeys] = useState(null);
+  const [isLoadingVapid, setIsLoadingVapid] = useState(false);
+  const [pushCooldownInfo, setPushCooldownInfo] = useState(null);
+  const [softPromptOptions, setSoftPromptOptions] = useState({
+    titleText: 'Would you like to receive Push Notifications?',
+    bodyText: 'We promise to only send you relevant content and give you updates on your transactions',
+    okButtonText: 'Sign me up!',
+    rejectButtonText: 'No thanks',
+    okButtonColor: '#4f46e5',
+    askAgainTimeInSeconds: 5,
+    serviceWorkerPath: '/clevertap_sw.js'
+  });
+  const [migrationResult, setMigrationResult] = useState(null);
+  const [simulatedPushResult, setSimulatedPushResult] = useState(null);
 
   // Core Data state loaded from SQLite Backend
   const [user, setUser] = useState(createEmptyUserModel());
@@ -208,6 +241,24 @@ export function useFocusFlowViewModel() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Web Push initialization: detect browser capability, SDK version, permission, and fetch VAPID keys
+  useEffect(() => {
+    setPushPermissionStatus(getNotificationPermissionStatus());
+    setSdkVersionInfo(getCleverTapSdkVersion());
+    setBrowserPushSupport(getBrowserWebPushSupport());
+    setPushCooldownInfo(getPushRejectionCooldown(softPromptOptions.askAgainTimeInSeconds));
+
+    fetchVapidKeysFromBackend(true)
+      .then((data) => {
+        if (data?.keys) {
+          setVapidKeys(data.keys);
+        }
+      })
+      .catch((err) => {
+        console.warn('[ViewModel] Initial fetchVapidKeys error:', err);
+      });
+  }, [softPromptOptions.askAgainTimeInSeconds]);
 
   // Countdown effect when a Focus Session is actively running
   useEffect(() => {
@@ -506,6 +557,107 @@ export function useFocusFlowViewModel() {
     addActivityLog('CLEVERTAP_POPUP', 'Session Campaign History Reset', {
       note: 'All campaigns can now be shown again even if dismissSpamControl = false'
     });
+  }
+
+  // --- WEB PUSH & VAPID ACTIONS ---
+
+  function handleRequestSoftPrompt(opts = {}) {
+    if (opts.reject) {
+      recordPushRejection();
+      setPushCooldownInfo(getPushRejectionCooldown(softPromptOptions.askAgainTimeInSeconds));
+      addActivityLog('CLEVERTAP_WEBPUSH', 'User rejected Web Push soft prompt (cooldown active)', {
+        askAgainTimeInSeconds: softPromptOptions.askAgainTimeInSeconds,
+        policy: '1-week rejection frequency rule (or custom cooldown)'
+      });
+      showStatusToast('Soft prompt rejected (cooldown active)');
+      return;
+    }
+
+    const res = requestCleverTapPushPermission({ ...softPromptOptions, ...opts });
+    if (res.status === 'SUPPRESSED_COOLDOWN') {
+      setPushCooldownInfo(res.cooldown);
+      showStatusToast(`Prompt suppressed by 1-week rule (${res.cooldown.remainingSeconds}s left)`);
+    } else {
+      showStatusToast('Triggered clevertap.notifications.push()');
+    }
+
+    addActivityLog('CLEVERTAP_WEBPUSH', 'clevertap.notifications.push', res);
+  }
+
+  async function handleRequestNativePermission() {
+    const res = await requestNativeBrowserPermission();
+    setPushPermissionStatus(res);
+    addActivityLog('CLEVERTAP_WEBPUSH', `Browser Notification.requestPermission() -> ${res}`, {
+      permission: res,
+      timestamp: new Date().toISOString()
+    });
+    showStatusToast(`Browser Push Permission: ${String(res).toUpperCase()}`);
+  }
+
+  function handleUpdateSoftPromptOptions(newOptions) {
+    setSoftPromptOptions((prev) => ({ ...prev, ...newOptions }));
+    showStatusToast('Soft prompt configuration applied');
+    addActivityLog('CLEVERTAP_WEBPUSH', 'Updated Soft Prompt configuration', newOptions);
+  }
+
+  function handleResetPushCooldown() {
+    clearPushRejectionCooldown();
+    setPushCooldownInfo(getPushRejectionCooldown(softPromptOptions.askAgainTimeInSeconds));
+    showStatusToast('Rejection cooldown cleared — prompt can be shown immediately');
+    addActivityLog('CLEVERTAP_WEBPUSH', 'Push rejection cooldown cleared', {
+      rule: 'Frequency restriction reset'
+    });
+  }
+
+  async function handleFetchVapidKeys() {
+    setIsLoadingVapid(true);
+    try {
+      const data = await fetchVapidKeysFromBackend(true);
+      if (data?.keys) {
+        setVapidKeys(data.keys);
+      }
+    } catch (err) {
+      console.warn('[ViewModel] fetchVapidKeys error:', err);
+    } finally {
+      setIsLoadingVapid(false);
+    }
+  }
+
+  async function handleGenerateVapidKeys() {
+    setIsLoadingVapid(true);
+    try {
+      const data = await generateVapidKeysOnBackend();
+      if (data?.keys) {
+        setVapidKeys(data.keys);
+        addActivityLog('CLEVERTAP_WEBPUSH', 'Generated fresh VAPID key pair (web-push)', {
+          publicKey: data.keys.publicKey,
+          generatedAt: data.keys.generatedAt
+        });
+        showStatusToast('Fresh VAPID keys generated successfully!');
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to generate VAPID keys');
+    } finally {
+      setIsLoadingVapid(false);
+    }
+  }
+
+  function handleSimulateTokenMigration(scenario) {
+    const result = evaluateTokenMigration(scenario);
+    setMigrationResult(result);
+    addActivityLog('CLEVERTAP_WEBPUSH', `Token Migration Evaluation (${scenario})`, result);
+    showStatusToast(`Evaluated Token Migration: ${scenario}`);
+  }
+
+  async function handleSimulatePushNotification(params) {
+    try {
+      const res = await simulatePushNotificationOnBackend(params);
+      setSimulatedPushResult(res);
+      addActivityLog('CLEVERTAP_WEBPUSH', 'Simulated Web Push Notification Payload', res);
+      showStatusToast('Push notification payload simulated!');
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to simulate push notification');
+    }
   }
 
   // --- AUTHENTICATION & IDENTITY ACTIONS (clevertap.onUserLogin.push) ---
@@ -1042,6 +1194,25 @@ export function useFocusFlowViewModel() {
     handleToggleExitIntent,
     handlePipAnchorChange,
     handlePipControl,
-    handleResetSessionCampaigns
+    handleResetSessionCampaigns,
+
+    // Web Push & VAPID Protocol state & handlers
+    pushPermissionStatus,
+    sdkVersionInfo,
+    browserPushSupport,
+    vapidKeys,
+    isLoadingVapid,
+    pushCooldownInfo,
+    softPromptOptions,
+    migrationResult,
+    simulatedPushResult,
+    handleRequestSoftPrompt,
+    handleRequestNativePermission,
+    handleUpdateSoftPromptOptions,
+    handleResetPushCooldown,
+    handleFetchVapidKeys,
+    handleGenerateVapidKeys,
+    handleSimulateTokenMigration,
+    handleSimulatePushNotification
   };
 }

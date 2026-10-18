@@ -133,3 +133,38 @@ export async function finishSessionOnBackend(sessionId, finalStatus) {
   const data = await parseJsonResponse(response, 'Failed to finish session');
   return data.session;
 }
+
+// --- WEB PUSH & VAPID BACKEND CLIENT API ---
+
+// Fetches active VAPID keys and CleverTap dashboard instructions
+export async function fetchVapidKeysFromBackend(reveal = true) {
+  const query = reveal ? '?reveal=true' : '';
+  const response = await fetch(`${API_BASE_URL}/push/vapid${query}`);
+  return parseJsonResponse(response, 'Failed to fetch VAPID keys');
+}
+
+// Generates a fresh VAPID key pair using web-push package
+export async function generateVapidKeysOnBackend() {
+  const response = await fetch(`${API_BASE_URL}/push/vapid/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  return parseJsonResponse(response, 'Failed to generate VAPID keys');
+}
+
+// Fetches service worker, manifest, and browser matrix status
+export async function fetchWebPushStatusFromBackend() {
+  const response = await fetch(`${API_BASE_URL}/push/status`);
+  return parseJsonResponse(response, 'Failed to fetch Web Push status');
+}
+
+// Sends a test push payload simulation to the backend
+export async function simulatePushNotificationOnBackend(payload) {
+  const response = await fetch(`${API_BASE_URL}/push/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse(response, 'Failed to simulate push notification');
+}
+

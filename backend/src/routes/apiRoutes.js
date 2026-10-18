@@ -23,6 +23,12 @@ const {
   handleFinishSession,
   handleGetDashboardStats
 } = require('../controllers/focusSessionController');
+const {
+  handleGetVapidKeys,
+  handleGenerateVapidKeys,
+  handleGetWebPushStatus,
+  handleSimulatePushNotification
+} = require('../controllers/webPushController');
 
 const router = express.Router();
 
@@ -44,5 +50,11 @@ router.get('/sessions', handleGetSessions);
 router.post('/sessions/start', handleStartSession);
 router.patch('/sessions/:id/finish', handleFinishSession);
 router.get('/dashboard', handleGetDashboardStats);
+
+// --- WEB PUSH & VAPID ROUTES ---
+router.get('/push/vapid', handleGetVapidKeys);
+router.post('/push/vapid/generate', handleGenerateVapidKeys);
+router.get('/push/status', handleGetWebPushStatus);
+router.post('/push/simulate', handleSimulatePushNotification);
 
 module.exports = router;

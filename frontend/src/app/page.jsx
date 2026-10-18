@@ -20,6 +20,7 @@ import UpgradeProModalView from '../views/UpgradeProModalView';
 import ActivityLogInspectorView from '../views/ActivityLogInspectorView';
 import WebPopupsStudioView from '../views/WebPopupsStudioView';
 import WebPopupsOverlayView from '../views/WebPopupsOverlayView';
+import WebPushStudioView from '../views/WebPushStudioView';
 
 export default function FocusFlowAppPage() {
   const vm = useFocusFlowViewModel();
@@ -162,6 +163,28 @@ export default function FocusFlowAppPage() {
               onPipControl={vm.handlePipControl}
               onResetSessionCampaigns={vm.handleResetSessionCampaigns}
               onNavigateTab={vm.setActiveTab}
+            />
+          )}
+
+          {vm.activeTab === 'push' && (
+            <WebPushStudioView
+              permissionStatus={vm.pushPermissionStatus}
+              sdkVersionInfo={vm.sdkVersionInfo}
+              browserSupport={vm.browserPushSupport}
+              vapidKeys={vm.vapidKeys}
+              cooldownInfo={vm.pushCooldownInfo}
+              softPromptOptions={vm.softPromptOptions}
+              onRequestSoftPrompt={vm.handleRequestSoftPrompt}
+              onRequestNativePermission={vm.handleRequestNativePermission}
+              onUpdateSoftPromptOptions={vm.handleUpdateSoftPromptOptions}
+              onResetCooldown={vm.handleResetPushCooldown}
+              onGenerateVapidKeys={vm.handleGenerateVapidKeys}
+              onRefreshVapidKeys={vm.handleFetchVapidKeys}
+              onSimulateTokenMigration={vm.handleSimulateTokenMigration}
+              migrationResult={vm.migrationResult}
+              onSimulatePushNotification={vm.handleSimulatePushNotification}
+              simulatedPushResult={vm.simulatedPushResult}
+              isLoadingVapid={vm.isLoadingVapid}
             />
           )}
         </main>
