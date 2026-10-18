@@ -168,3 +168,32 @@ export async function simulatePushNotificationOnBackend(payload) {
   return parseJsonResponse(response, 'Failed to simulate push notification');
 }
 
+// --- WEB NATIVE DISPLAY CLIENT API ---
+
+// Fetches predefined Web Native Display campaigns and priority rules
+export async function fetchNativeDisplayCampaignsFromBackend() {
+  const response = await fetch(`${API_BASE_URL}/native/campaigns`);
+  return parseJsonResponse(response, 'Failed to fetch native display campaigns');
+}
+
+// Resolves competing campaign priorities according to CleverTap rules
+export async function resolveNativeDisplayPrioritiesOnBackend(campaigns = []) {
+  const response = await fetch(`${API_BASE_URL}/native/resolve-priority`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ campaigns })
+  });
+  return parseJsonResponse(response, 'Failed to resolve campaign priorities');
+}
+
+// Simulates a Web Native Display CustomEvent payload from the backend
+export async function simulateNativeDisplayEventOnBackend(params = {}) {
+  const response = await fetch(`${API_BASE_URL}/native/simulate-event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  return parseJsonResponse(response, 'Failed to simulate native display event');
+}
+
+

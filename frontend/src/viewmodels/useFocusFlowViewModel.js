@@ -29,7 +29,10 @@ import {
   fetchVapidKeysFromBackend,
   generateVapidKeysOnBackend,
   fetchWebPushStatusFromBackend,
-  simulatePushNotificationOnBackend
+  simulatePushNotificationOnBackend,
+  fetchNativeDisplayCampaignsFromBackend,
+  resolveNativeDisplayPrioritiesOnBackend,
+  simulateNativeDisplayEventOnBackend
 } from '../services/backendApiService';
 import {
   CLEVERTAP_EVENTS,
@@ -72,7 +75,14 @@ import {
   clearPushRejectionCooldown,
   requestCleverTapPushPermission,
   evaluateTokenMigration,
-  checkServiceWorkerRegistration
+  checkServiceWorkerRegistration,
+  CT_NATIVE_EVENTS,
+  dispatchCleverTapNativeDisplayEvent,
+  registerCleverTapNativeDisplayListener,
+  renderCartDropOffPersonalisationCampaign,
+  renderStreakPersonalisationCampaign,
+  renderProOfferPersonalisationCampaign,
+  resolveNativeDisplayPriorities
 } from '../services/clevertapSdkService';
 
 export function useFocusFlowViewModel() {
@@ -125,6 +135,13 @@ export function useFocusFlowViewModel() {
   });
   const [migrationResult, setMigrationResult] = useState(null);
   const [simulatedPushResult, setSimulatedPushResult] = useState(null);
+
+  // Web Native Display state
+  const [nativeDisplayData, setNativeDisplayData] = useState(null);
+  const [activeNativeTopic, setActiveNativeTopic] = useState(null);
+  const [nativeCampaignsList, setNativeCampaignsList] = useState([]);
+  const [priorityResults, setPriorityResults] = useState(null);
+  const [isResolvingPriority, setIsResolvingPriority] = useState(false);
 
   // Core Data state loaded from SQLite Backend
   const [user, setUser] = useState(createEmptyUserModel());
@@ -259,6 +276,44 @@ export function useFocusFlowViewModel() {
         console.warn('[ViewModel] Initial fetchVapidKeys error:', err);
       });
   }, [softPromptOptions.askAgainTimeInSeconds]);
+
+  // Web Native Display: Register listener for "CT_web_native_display" and fetch campaigns
+  useEffect(() => {
+    // 1. Register listener for document event "CT_web_native_display"
+    const cleanupListener = registerCleverTapNativeDisplayListener((data) => {
+      const topic = data?.kv?.topic;
+      if (topic) {
+        setActiveNativeTopic(topic);
+        setNativeDisplayData(data);
+        if (topic === 'Cart drop-off') {
+          renderCartDropOffPersonalisationCampaign(data);
+        } else if (topic === 'Focus Streak Milestone') {
+          renderStreakPersonalisationCampaign(data);
+        } else if (topic === 'Pro Upgrade Offer') {
+          renderProOfferPersonalisationCampaign(data);
+        }
+        addActivityLog('CLEVERTAP_NATIVE', `CT_web_native_display received [Topic: "${topic}"]`, data);
+      }
+    });
+
+    // 2. Fetch native campaigns from backend & evaluate initial priority
+    fetchNativeDisplayCampaignsFromBackend()
+      .then((resp) => {
+        if (resp?.campaigns) {
+          setNativeCampaignsList(resp.campaigns);
+          const initialPriorities = resolveNativeDisplayPriorities(resp.campaigns);
+          setPriorityResults(initialPriorities);
+        }
+      })
+      .catch((err) => {
+        console.warn('[ViewModel] Initial fetchNativeDisplayCampaigns error:', err);
+      });
+
+    return () => {
+      cleanupListener();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Countdown effect when a Focus Session is actively running
   useEffect(() => {
@@ -657,6 +712,132 @@ export function useFocusFlowViewModel() {
       showStatusToast('Push notification payload simulated!');
     } catch (err) {
       setErrorMessage(err.message || 'Failed to simulate push notification');
+    }
+  }
+
+  // --- WEB NATIVE DISPLAY ACTIONS (CT_web_native_display) ---
+
+  function handleTriggerNativeTopic(topicName) {
+    const matchedCamp = nativeCampaignsList.find(
+      (c) => c.topic === topicName && c.type === 'kv_pair'
+    );
+    let payload = matchedCamp?.payload ? JSON.parse(JSON.stringify(matchedCamp.payload)) : null;
+
+    if (!payload) {
+      if (topicName === 'Cart drop-off') {
+        payload = {
+          kv: {
+            topic: 'Cart drop-off',
+            Name: user.name || 'Elena Vance',
+            Cart: 'Roadster Jacket',
+            DiscountCode: 'SALE20',
+            DiscountPercent: '20%',
+            ExpiryHours: 24,
+            BannerImage:
+              'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=800&q=80'
+          },
+          msgId: `1649748667_${Date.now()}_c1`,
+          wzrk_pivot: 'wzrk_default'
+        };
+      } else if (topicName === 'Focus Streak Milestone') {
+        payload = {
+          kv: {
+            topic: 'Focus Streak Milestone',
+            Name: user.name || 'Elena Vance',
+            StreakCount: dashboard.currentStreak || 7,
+            MilestoneBadge: 'Golden Pomodoro Champion',
+            CelebrationMessage: 'Unstoppable! 7 consecutive deep work days completed.'
+          },
+          msgId: `1649748667_${Date.now()}_c3`,
+          wzrk_pivot: 'streak_v1'
+        };
+      } else {
+        payload = {
+          kv: {
+            topic: 'Pro Upgrade Offer',
+            Name: user.name || 'Elena Vance',
+            PlanName: 'FocusFlow Annual Pro',
+            OriginalPrice: '$59.99',
+            OfferPrice: '$29.99',
+            Perks: 'Binaural Soundscapes, Unlimited Analytics, Priority Sync'
+          },
+          msgId: `1649748667_${Date.now()}_c4`,
+          wzrk_pivot: 'annual_pro_50off'
+        };
+      }
+    }
+
+    // Ensure topic is the first key in kv according to official CleverTap documentation
+    if (payload?.kv) {
+      const { topic, ...rest } = payload.kv;
+      payload.kv = { topic: topic || topicName, ...rest };
+    }
+
+    // Dispatch event (triggers document listener)
+    dispatchCleverTapNativeDisplayEvent(CT_NATIVE_EVENTS.KV_DISPLAY, payload);
+    setNativeDisplayData(payload);
+    setActiveNativeTopic(topicName);
+
+    // Call topic renderer to track Notification Viewed
+    if (topicName === 'Cart drop-off') {
+      renderCartDropOffPersonalisationCampaign(payload);
+    } else if (topicName === 'Focus Streak Milestone') {
+      renderStreakPersonalisationCampaign(payload);
+    } else if (topicName === 'Pro Upgrade Offer') {
+      renderProOfferPersonalisationCampaign(payload);
+    }
+
+    addActivityLog(
+      'CLEVERTAP_NATIVE',
+      `document.dispatchEvent("CT_web_native_display") [Topic: "${topicName}"]`,
+      payload
+    );
+    showStatusToast(`Personalized content rendered for topic: "${topicName}"`);
+  }
+
+  function handleResetNativeFallback() {
+    setNativeDisplayData(null);
+    setActiveNativeTopic(null);
+    addActivityLog('CLEVERTAP_NATIVE', 'Reset to Default / Fallback Content', {
+      fallbackActive: true,
+      reason: 'Manual reset or fallback test'
+    });
+    showStatusToast('Reverted to Default / Fallback Content');
+  }
+
+  function handleNativeElementActionClicked(data) {
+    const payload = data || nativeDisplayData;
+    renderCleverTapNotificationClicked(payload);
+    addActivityLog('CLEVERTAP_NATIVE', 'clevertap.renderNotificationClicked()', payload);
+    showStatusToast('Notification Clicked tracked in CleverTap!');
+  }
+
+  async function handleResolveNativePriorities(customCampaigns) {
+    setIsResolvingPriority(true);
+    const campaignsToEvaluate = customCampaigns || nativeCampaignsList;
+    try {
+      // 1. Evaluate client-side according to official spec
+      const clientResult = resolveNativeDisplayPriorities(campaignsToEvaluate);
+      setPriorityResults(clientResult);
+
+      // 2. Also verify against backend priority resolution engine
+      try {
+        const backendRes = await resolveNativeDisplayPrioritiesOnBackend(campaignsToEvaluate);
+        if (backendRes?.data) {
+          setPriorityResults(backendRes.data);
+        }
+      } catch (backendErr) {
+        console.warn('[ViewModel] Backend priority resolution fallback to client:', backendErr);
+      }
+
+      addActivityLog('CLEVERTAP_NATIVE', 'Campaign Priority Resolution Engine Evaluated', clientResult);
+      showStatusToast(
+        `Priorities Resolved: ${clientResult.executedCount} winning, ${clientResult.suppressedCount} suppressed`
+      );
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to resolve campaign priorities');
+    } finally {
+      setIsResolvingPriority(false);
     }
   }
 
@@ -1213,6 +1394,17 @@ export function useFocusFlowViewModel() {
     handleFetchVapidKeys,
     handleGenerateVapidKeys,
     handleSimulateTokenMigration,
-    handleSimulatePushNotification
+    handleSimulatePushNotification,
+
+    // Web Native Display state & handlers
+    nativeDisplayData,
+    activeNativeTopic,
+    nativeCampaignsList,
+    priorityResults,
+    isResolvingPriority,
+    handleTriggerNativeTopic,
+    handleResetNativeFallback,
+    handleNativeElementActionClicked,
+    handleResolveNativePriorities
   };
 }

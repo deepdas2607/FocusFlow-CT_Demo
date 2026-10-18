@@ -1137,4 +1137,214 @@ export async function checkServiceWorkerRegistration(swPath = '/clevertap_sw.js'
   }
 }
 
+// ============================================================================
+// 18. WEB NATIVE DISPLAY (CUSTOM KEY-VALUE PAIRS, TOPIC DISPATCH & PRIORITY)
+// Official Documentation: https://developer.clevertap.com/docs/web-native-display
+// ============================================================================
+
+export const CT_NATIVE_EVENTS = {
+  KV_DISPLAY: 'CT_web_native_display',
+  BUILDER: 'CT_web_native_display_builder',
+  JSON_DISPLAY: 'CT_web_native_display_json'
+};
+
+// 18.1 DISPATCH NATIVE DISPLAY CUSTOM EVENT
+// Emits CustomEvent for testing, simulated campaigns, and client-side triggers
+export function dispatchCleverTapNativeDisplayEvent(eventName = CT_NATIVE_EVENTS.KV_DISPLAY, payload = {}) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return { status: 'SSR_SKIPPED', eventName, payload };
+  }
+
+  // Ensure topic is always the first key in the kv object per CleverTap specification
+  const kvData = payload.kv || {};
+  const topic = kvData.topic || payload.topic || 'Cart drop-off';
+  const orderedKv = { topic, ...kvData };
+
+  const eventDetail = {
+    kv: orderedKv,
+    msgId: payload.msgId || `1649748667_${Date.now()}`,
+    wzrk_pivot: payload.wzrk_pivot || 'wzrk_default',
+    ...payload
+  };
+
+  try {
+    const customEvent = new CustomEvent(eventName, {
+      detail: eventDetail,
+      bubbles: true,
+      cancelable: true
+    });
+    document.dispatchEvent(customEvent);
+    console.log(`[CleverTap Native Display] Dispatched "${eventName}" event:`, eventDetail);
+    return { status: 'DISPATCHED', eventName, detail: eventDetail };
+  } catch (error) {
+    console.warn(`[CleverTap Native Display] Dispatch error:`, error);
+    return { status: 'ERROR', error: error.message };
+  }
+}
+
+// 18.2 LISTEN TO KEY-VALUE PAIRS SENT BY CLEVERTAP
+// document.addEventListener("CT_web_native_display", function(event) { ... })
+export function registerCleverTapNativeDisplayListener(callback, eventName = CT_NATIVE_EVENTS.KV_DISPLAY) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return () => {};
+  }
+
+  function handleNativeDisplayEvent(event) {
+    const data = event.detail || {};
+    console.log(`[CleverTap Native Display] Received "${eventName}":`, data);
+    if (typeof callback === 'function') {
+      callback(data, event);
+    }
+  }
+
+  document.addEventListener(eventName, handleNativeDisplayEvent);
+
+  return function cleanup() {
+    document.removeEventListener(eventName, handleNativeDisplayEvent);
+  };
+}
+
+// 18.3 OFFICIAL TOPIC RENDERING FUNCTIONS
+// Implements renderCartDropOffPersonalisationCampaign from documentation + productivity topics
+
+export function renderCartDropOffPersonalisationCampaign(data, elements = {}) {
+  const name = data.kv?.Name || 'User';
+  const product = data.kv?.Cart || 'Item';
+  const discount = data.kv?.DiscountCode || 'SALE20';
+
+  if (elements.userNameEl) elements.userNameEl.innerText = name;
+  if (elements.productNameEl) elements.productNameEl.innerText = product;
+
+  // Track Notification Viewed
+  renderCleverTapNotificationViewed(data);
+
+  return {
+    rendered: true,
+    topic: 'Cart drop-off',
+    personalizedFields: { name, product, discount }
+  };
+}
+
+export function renderStreakPersonalisationCampaign(data, elements = {}) {
+  const name = data.kv?.Name || 'Elena Vance';
+  const streak = data.kv?.StreakCount || 7;
+  const badge = data.kv?.MilestoneBadge || 'Golden Pomodoro Champion';
+
+  if (elements.userNameEl) elements.userNameEl.innerText = name;
+  if (elements.streakEl) elements.streakEl.innerText = String(streak);
+
+  renderCleverTapNotificationViewed(data);
+
+  return {
+    rendered: true,
+    topic: 'Focus Streak Milestone',
+    personalizedFields: { name, streak, badge }
+  };
+}
+
+export function renderProOfferPersonalisationCampaign(data, elements = {}) {
+  const name = data.kv?.Name || 'Elena Vance';
+  const plan = data.kv?.PlanName || 'Annual Pro';
+  const price = data.kv?.OfferPrice || '$29.99';
+
+  if (elements.userNameEl) elements.userNameEl.innerText = name;
+  if (elements.priceEl) elements.priceEl.innerText = price;
+
+  renderCleverTapNotificationViewed(data);
+
+  return {
+    rendered: true,
+    topic: 'Pro Upgrade Offer',
+    personalizedFields: { name, plan, price }
+  };
+}
+
+// 18.4 CAMPAIGN PRIORITY RESOLUTION SPECIFICATION
+// Follows CleverTap documentation on Priority Conflicts:
+// 1. Conflicting KV Pair Topics: If two campaigns share same topic, highest priority executes.
+// 2. Unique KV Pair Topics: Execute concurrently without conflict.
+// 3. Overlapping Selectors: If campaigns target same element (e.g. #native-banner-container), highest priority executes entirely.
+// 4. Cross-Event Isolation: JSON and Visual Editor campaigns do not compete with each other.
+export function resolveNativeDisplayPriorities(campaigns = []) {
+  const executed = [];
+  const suppressed = [];
+
+  const kvByTopic = {};
+  const domBySelector = {};
+  const otherCustomerEvents = {};
+
+  campaigns.forEach((camp) => {
+    if (camp.type === 'kv_pair' && (camp.eventName === CT_NATIVE_EVENTS.KV_DISPLAY || !camp.eventName)) {
+      const topic = camp.topic || camp.payload?.kv?.topic || 'default';
+      if (!kvByTopic[topic]) kvByTopic[topic] = [];
+      kvByTopic[topic].push(camp);
+    } else if (camp.type === 'banner' || camp.type === 'carousel' || camp.selector) {
+      const sel = camp.selector || 'default_selector';
+      if (!domBySelector[sel]) domBySelector[sel] = [];
+      domBySelector[sel].push(camp);
+    } else {
+      const ev = camp.eventName || CT_NATIVE_EVENTS.JSON_DISPLAY;
+      if (!otherCustomerEvents[ev]) otherCustomerEvents[ev] = [];
+      otherCustomerEvents[ev].push(camp);
+    }
+  });
+
+  // 1. KV Pair Topic Resolution
+  Object.entries(kvByTopic).forEach(([topic, list]) => {
+    list.sort((a, b) => b.priority - a.priority);
+    const winner = list[0];
+    executed.push({
+      ...winner,
+      resolution: `Won execution (Highest Priority ${winner.priority} for topic "${topic}").`
+    });
+    for (let i = 1; i < list.length; i++) {
+      suppressed.push({
+        ...list[i],
+        resolution: `Suppressed: Lower priority (${list[i].priority}) vs winning campaign "${winner.name}" (${winner.priority}) on topic "${topic}".`
+      });
+    }
+  });
+
+  // 2. DOM Selector Resolution
+  Object.entries(domBySelector).forEach(([sel, list]) => {
+    list.sort((a, b) => b.priority - a.priority);
+    const winner = list[0];
+    executed.push({
+      ...winner,
+      resolution: `Won execution (Highest Priority ${winner.priority} for selector "${sel}").`
+    });
+    for (let i = 1; i < list.length; i++) {
+      suppressed.push({
+        ...list[i],
+        resolution: `Suppressed: Lower priority (${list[i].priority}) vs winning campaign "${winner.name}" (${winner.priority}) targeting selector "${sel}".`
+      });
+    }
+  });
+
+  // 3. Other Events Resolution (Cross-Event Isolation)
+  Object.entries(otherCustomerEvents).forEach(([ev, list]) => {
+    list.sort((a, b) => b.priority - a.priority);
+    const winner = list[0];
+    executed.push({
+      ...winner,
+      resolution: `Won execution (Highest Priority ${winner.priority} under event "${ev}").`
+    });
+    for (let i = 1; i < list.length; i++) {
+      suppressed.push({
+        ...list[i],
+        resolution: `Suppressed under event "${ev}".`
+      });
+    }
+  });
+
+  return {
+    total: campaigns.length,
+    executedCount: executed.length,
+    suppressedCount: suppressed.length,
+    executed,
+    suppressed
+  };
+}
+
+
 

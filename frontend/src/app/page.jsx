@@ -21,6 +21,7 @@ import ActivityLogInspectorView from '../views/ActivityLogInspectorView';
 import WebPopupsStudioView from '../views/WebPopupsStudioView';
 import WebPopupsOverlayView from '../views/WebPopupsOverlayView';
 import WebPushStudioView from '../views/WebPushStudioView';
+import WebNativeDisplayStudioView from '../views/WebNativeDisplayStudioView';
 
 export default function FocusFlowAppPage() {
   const vm = useFocusFlowViewModel();
@@ -185,6 +186,20 @@ export default function FocusFlowAppPage() {
               onSimulatePushNotification={vm.handleSimulatePushNotification}
               simulatedPushResult={vm.simulatedPushResult}
               isLoadingVapid={vm.isLoadingVapid}
+            />
+          )}
+
+          {vm.activeTab === 'native' && (
+            <WebNativeDisplayStudioView
+              nativeDisplayData={vm.nativeDisplayData}
+              activeTopic={vm.activeNativeTopic}
+              onTriggerTopic={vm.handleTriggerNativeTopic}
+              onResetToFallback={vm.handleResetNativeFallback}
+              onElementActionClicked={vm.handleNativeElementActionClicked}
+              onResolvePriorities={vm.handleResolveNativePriorities}
+              priorityResults={vm.priorityResults}
+              isResolvingPriority={vm.isResolvingPriority}
+              campaignsList={vm.nativeCampaignsList}
             />
           )}
         </main>

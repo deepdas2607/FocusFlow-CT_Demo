@@ -29,6 +29,11 @@ const {
   handleGetWebPushStatus,
   handleSimulatePushNotification
 } = require('../controllers/webPushController');
+const {
+  handleGetNativeCampaigns,
+  handleResolveCampaignPriorities,
+  handleSimulateNativeEvent
+} = require('../controllers/webNativeDisplayController');
 
 const router = express.Router();
 
@@ -56,5 +61,10 @@ router.get('/push/vapid', handleGetVapidKeys);
 router.post('/push/vapid/generate', handleGenerateVapidKeys);
 router.get('/push/status', handleGetWebPushStatus);
 router.post('/push/simulate', handleSimulatePushNotification);
+
+// --- WEB NATIVE DISPLAY ROUTES ---
+router.get('/native/campaigns', handleGetNativeCampaigns);
+router.post('/native/resolve-priority', handleResolveCampaignPriorities);
+router.post('/native/simulate-event', handleSimulateNativeEvent);
 
 module.exports = router;
