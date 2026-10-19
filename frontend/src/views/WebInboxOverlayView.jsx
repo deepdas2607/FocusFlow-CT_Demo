@@ -14,7 +14,7 @@
 // - Mobile fullscreen behavior (<= 480px)
 // ============================================================================
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 export default function WebInboxOverlayView({
   isOpen,
@@ -30,19 +30,24 @@ export default function WebInboxOverlayView({
   onDeleteMessage
 }) {
   const inboxRef = useRef(null);
+  const viewedMsgIdsRef = useRef(new Set());
   const [filter, setFilter] = useState('all'); // 'all' | 'unread'
 
-  // Filter messages based on tab
-  const displayedMessages = messages.filter((m) => {
-    if (filter === 'unread') return !m.isRead;
-    return true;
-  });
+  // Filter messages based on tab (memoized)
+  const displayedMessages = useMemo(() => {
+    if (filter === 'unread') return messages.filter((m) => !m.isRead);
+    return messages;
+  }, [messages, filter]);
 
   // Track Notification Viewed for newly visible messages (CleverTap spec: raised only once per message)
   useEffect(() => {
     if (isOpen && displayedMessages.length > 0 && onNotificationViewed) {
       displayedMessages.forEach((msg) => {
-        onNotificationViewed(msg);
+        const id = msg.msgId || msg.id;
+        if (id && !viewedMsgIdsRef.current.has(id)) {
+          viewedMsgIdsRef.current.add(id);
+          onNotificationViewed(msg);
+        }
       });
     }
   }, [isOpen, displayedMessages, onNotificationViewed]);
@@ -52,12 +57,16 @@ export default function WebInboxOverlayView({
     if (!isOpen) return;
 
     function handlePageClick(e) {
-      // Check if click was inside inbox or inside the bell trigger
+      // Check if click was inside inbox or inside the bell triggers (global header or studio preview)
       if (inboxRef.current && inboxRef.current.contains(e.target)) {
         return;
       }
       const bellTrigger = document.getElementById('ct-inbox-bell-trigger');
       if (bellTrigger && bellTrigger.contains(e.target)) {
+        return;
+      }
+      const studioTrigger = document.getElementById('ct-inbox-bell-trigger-studio');
+      if (studioTrigger && studioTrigger.contains(e.target)) {
         return;
       }
       onClose();

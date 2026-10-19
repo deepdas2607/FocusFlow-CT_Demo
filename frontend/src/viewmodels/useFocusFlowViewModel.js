@@ -5,7 +5,7 @@
 // Increments, Offline, Debugging).
 // ============================================================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   createEmptyUserModel,
   createNewTaskPayload,
@@ -203,10 +203,10 @@ export function useFocusFlowViewModel() {
   // Live Activity & Payload Inspector state
   const [activityLogs, setActivityLogs] = useState([]);
 
-  // Appends a new entry to the top of the Live Activity & Payload Inspector
+  // Appends a new entry to the top of the Live Activity & Payload Inspector (capped at 100 to prevent unbounded growth)
   function addActivityLog(source, actionName, payloadData) {
     const newEntry = createActivityLogEntry(source, actionName, payloadData);
-    setActivityLogs((prev) => [newEntry, ...prev]);
+    setActivityLogs((prev) => [newEntry, ...prev.slice(0, 99)]);
   }
 
   // Displays a temporary toast message in the UI header
@@ -412,17 +412,34 @@ export function useFocusFlowViewModel() {
     }
   }
 
+  // Ref keeping latest session & streak state for the Exit Intent listener without listener churn
+  const exitIntentStateRef = useRef({
+    dismissSpamControl,
+    shownCampaignsInSession,
+    currentStreak: dashboard.currentStreak
+  });
+  useEffect(() => {
+    exitIntentStateRef.current = {
+      dismissSpamControl,
+      shownCampaignsInSession,
+      currentStreak: dashboard.currentStreak
+    };
+  }, [dismissSpamControl, shownCampaignsInSession, dashboard.currentStreak]);
+
   // Effect: Desktop Exit Intent Listener (triggers when cursor moves towards browser top edge)
   useEffect(() => {
     if (!exitIntentEnabled) return;
 
     const cleanup = setupCleverTapExitIntentListener((eventData) => {
       const campaignId = 'camp_exit_intent_streak_saver';
-      if (!dismissSpamControl && shownCampaignsInSession[campaignId]) {
+      const { dismissSpamControl: curDismissSpam, shownCampaignsInSession: curShown, currentStreak: curStreak } =
+        exitIntentStateRef.current;
+
+      if (!curDismissSpam && curShown[campaignId]) {
         addActivityLog('CLEVERTAP_POPUP', 'Exit Intent Blocked (dismissSpamControl = false)', {
           reason: 'Campaign already dismissed once in this session',
           campaignId,
-          dismissSpamControl
+          dismissSpamControl: curDismissSpam
         });
         setPopupAnalytics((prev) => ({ ...prev, spamBlockedCount: prev.spamBlockedCount + 1 }));
         return;
@@ -440,7 +457,7 @@ export function useFocusFlowViewModel() {
           pivotId,
           msgId,
           title: 'Wait! Don’t Break Your Focus Streak!',
-          description: `You are currently on a ${dashboard.currentStreak || 1}-day streak! Complete one 25-minute Pomodoro session today to keep your streak intact.`,
+          description: `You are currently on a ${curStreak || 1}-day streak! Complete one 25-minute Pomodoro session today to keep your streak intact.`,
           c2aText: 'Stay & Focus (25m)',
           secondaryText: 'Leave Website',
           kv: { intent_source: 'desktop_window_exit', discount_pct: '25' }
@@ -464,7 +481,7 @@ export function useFocusFlowViewModel() {
     });
 
     return cleanup;
-  }, [exitIntentEnabled, dismissSpamControl, shownCampaignsInSession, dashboard.currentStreak]);
+  }, [exitIntentEnabled]);
 
   // Effect: Register CleverTap Custom Callbacks (notificationCallback & popupCallback)
   useEffect(() => {
@@ -877,31 +894,50 @@ export function useFocusFlowViewModel() {
     }
   }
 
-  // --- WEB INBOX (<ct-web-inbox>) ACTIONS ---
+  // Helper to recompute inbox position style relative to #ct-inbox-bell-trigger
+  const computeInboxPosition = useCallback(
+    (posMode = inboxPosition, styles = inboxStyles) => {
+      if (typeof window === 'undefined') return {};
+      const bellEl = window.document.getElementById('ct-inbox-bell-trigger');
+      if (!bellEl) return {};
+      const rect = bellEl.getBoundingClientRect();
+      return calculateWebInboxPosition(rect, posMode, {
+        width: parseInt(styles.width, 10) || 392,
+        height: parseInt(styles.height, 10) || 546
+      });
+    },
+    [inboxPosition, inboxStyles]
+  );
 
   // Toggles the Web Inbox window open/closed relative to #ct-inbox-bell-trigger
   function handleToggleInbox() {
-    setIsInboxOpen((prev) => {
-      const nextState = !prev;
-      if (nextState && typeof window !== 'undefined') {
-        const bellEl = window.document.getElementById('ct-inbox-bell-trigger');
-        if (bellEl) {
-          const rect = bellEl.getBoundingClientRect();
-          const posStyle = calculateWebInboxPosition(rect, inboxPosition, {
-            width: parseInt(inboxStyles.width, 10) || 392,
-            height: parseInt(inboxStyles.height, 10) || 546
-          });
-          setInboxPositionStyle(posStyle);
-        }
-      }
-      addActivityLog('CLEVERTAP_INBOX', `Web Inbox ${nextState ? 'OPENED' : 'CLOSED'}`, {
-        isOpen: nextState,
-        inboxPosition,
-        unreadCount: inboxMessages.filter((m) => !m.isRead).length
-      });
-      return nextState;
+    const nextState = !isInboxOpen;
+    if (nextState) {
+      const posStyle = computeInboxPosition(inboxPosition, inboxStyles);
+      setInboxPositionStyle(posStyle);
+    }
+    setIsInboxOpen(nextState);
+    addActivityLog('CLEVERTAP_INBOX', `Web Inbox ${nextState ? 'OPENED' : 'CLOSED'}`, {
+      isOpen: nextState,
+      inboxPosition,
+      unreadCount: inboxMessages.filter((m) => !m.isRead).length
     });
   }
+
+  // Reposition inbox dynamically on window resize or scroll when open
+  useEffect(() => {
+    if (!isInboxOpen) return;
+    function handleReposition() {
+      const posStyle = computeInboxPosition(inboxPosition, inboxStyles);
+      setInboxPositionStyle(posStyle);
+    }
+    window.addEventListener('resize', handleReposition, { passive: true });
+    window.addEventListener('scroll', handleReposition, { passive: true });
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition);
+    };
+  }, [isInboxOpen, computeInboxPosition, inboxPosition, inboxStyles]);
 
   function handleCloseInbox() {
     setIsInboxOpen(false);
@@ -912,17 +948,8 @@ export function useFocusFlowViewModel() {
 
   function handleSetInboxPosition(newPosition) {
     setInboxPosition(newPosition);
-    if (typeof window !== 'undefined') {
-      const bellEl = window.document.getElementById('ct-inbox-bell-trigger');
-      if (bellEl) {
-        const rect = bellEl.getBoundingClientRect();
-        const posStyle = calculateWebInboxPosition(rect, newPosition, {
-          width: parseInt(inboxStyles.width, 10) || 392,
-          height: parseInt(inboxStyles.height, 10) || 546
-        });
-        setInboxPositionStyle(posStyle);
-      }
-    }
+    const posStyle = computeInboxPosition(newPosition, inboxStyles);
+    setInboxPositionStyle(posStyle);
     showStatusToast(`Inbox position set to: ${newPosition}`);
     addActivityLog('CLEVERTAP_INBOX', `Updated Inbox Position Anchor -> ${newPosition}`, {
       position: newPosition
@@ -930,21 +957,10 @@ export function useFocusFlowViewModel() {
   }
 
   function handleUpdateInboxStyles(styleUpdates) {
-    setInboxStyles((prev) => {
-      const updated = { ...prev, ...styleUpdates };
-      if (typeof window !== 'undefined') {
-        const bellEl = window.document.getElementById('ct-inbox-bell-trigger');
-        if (bellEl) {
-          const rect = bellEl.getBoundingClientRect();
-          const posStyle = calculateWebInboxPosition(rect, inboxPosition, {
-            width: parseInt(updated.width, 10) || 392,
-            height: parseInt(updated.height, 10) || 546
-          });
-          setInboxPositionStyle(posStyle);
-        }
-      }
-      return updated;
-    });
+    const updated = { ...inboxStyles, ...styleUpdates };
+    setInboxStyles(updated);
+    const posStyle = computeInboxPosition(inboxPosition, updated);
+    setInboxPositionStyle(posStyle);
     showStatusToast('Web Inbox styles updated');
     addActivityLog('CLEVERTAP_INBOX', 'Updated Web Inbox CSS Properties', styleUpdates);
   }

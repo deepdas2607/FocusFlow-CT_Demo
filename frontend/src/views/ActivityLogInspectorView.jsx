@@ -4,7 +4,7 @@
 // Shows real-time SQLite Backend requests and CleverTap SDK JSON payloads.
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 export default function ActivityLogInspectorView({
   isOpen,
@@ -14,12 +14,24 @@ export default function ActivityLogInspectorView({
 }) {
   const [sourceFilter, setSourceFilter] = useState('ALL'); // 'ALL' | 'CLEVERTAP_SDK' | 'BACKEND_SQLITE'
 
-  if (!isOpen) return null;
+  const { filteredLogs, ctCount, sqliteCount } = useMemo(() => {
+    let ct = 0;
+    let sqlite = 0;
+    const filtered = [];
+    const logsList = Array.isArray(logs) ? logs : [];
+    for (let i = 0; i < logsList.length; i++) {
+      const entry = logsList[i];
+      if (entry.source === 'CLEVERTAP_SDK') ct++;
+      else if (entry.source === 'BACKEND_SQLITE') sqlite++;
 
-  const filteredLogs = logs.filter((entry) => {
-    if (sourceFilter === 'ALL') return true;
-    return entry.source === sourceFilter;
-  });
+      if (sourceFilter === 'ALL' || entry.source === sourceFilter) {
+        filtered.push(entry);
+      }
+    }
+    return { filteredLogs: filtered, ctCount: ct, sqliteCount: sqlite };
+  }, [logs, sourceFilter]);
+
+  if (!isOpen) return null;
 
   // Returns a badge color based on whether the log is from CleverTap SDK or SQLite Backend
   function getSourceBadgeClass(source) {
@@ -73,14 +85,8 @@ export default function ActivityLogInspectorView({
       <div className="px-4 py-2.5 bg-slate-950/60 border-b border-slate-800 flex items-center gap-1.5">
         {[
           { id: 'ALL', label: `All (${logs.length})` },
-          {
-            id: 'CLEVERTAP_SDK',
-            label: `CleverTap SDK (${logs.filter((l) => l.source === 'CLEVERTAP_SDK').length})`
-          },
-          {
-            id: 'BACKEND_SQLITE',
-            label: `SQLite DB (${logs.filter((l) => l.source === 'BACKEND_SQLITE').length})`
-          }
+          { id: 'CLEVERTAP_SDK', label: `CleverTap SDK (${ctCount})` },
+          { id: 'BACKEND_SQLITE', label: `SQLite DB (${sqliteCount})` }
         ].map((tab) => (
           <button
             key={tab.id}
