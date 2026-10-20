@@ -62,11 +62,13 @@ import {
   closeActiveCleverTapPopup,
   handleSpaRoutePopupDismissal,
   registerCleverTapNotificationCallback,
+  unregisterCleverTapNotificationCallback,
+  purgeCleverTapLocalCache,
+  getCleverTapQualifiedCampaigns,
   renderCleverTapNotificationViewed,
   renderCleverTapNotificationClicked,
   registerCleverTapPopupCallback,
   raiseCleverTapPopupNotificationClicked,
-  setupCleverTapExitIntentListener,
   PIP_ANCHOR_POSITIONS,
   getPipPositionClasses,
   resolvePipClickAction,
@@ -117,7 +119,7 @@ export function useFocusFlowViewModel() {
   // Web Pop-ups & Exit Intent state
   const [activePopup, setActivePopup] = useState(null);
   const [dismissSpamControl, setDismissSpamControl] = useState(true);
-  const [exitIntentEnabled, setExitIntentEnabled] = useState(true);
+  const [exitIntentEnabled, setExitIntentEnabled] = useState(false);
   const [shownCampaignsInSession, setShownCampaignsInSession] = useState({});
   const [pipConfig, setPipConfig] = useState({
     anchor: 'bottom-right',
@@ -207,6 +209,30 @@ export function useFocusFlowViewModel() {
   function addActivityLog(source, actionName, payloadData) {
     const newEntry = createActivityLogEntry(source, actionName, payloadData);
     setActivityLogs((prev) => [newEntry, ...prev.slice(0, 99)]);
+
+    // Emit styled, verbose console logs in browser DevTools for immediate inspection
+    if (typeof window !== 'undefined' && window.console) {
+      const categoryTheme = {
+        CLEVERTAP_SDK: 'background: #4338ca; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px;',
+        CLEVERTAP_WEBPUSH: 'background: #0284c7; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px;',
+        CLEVERTAP_POPUP: 'background: #d97706; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px;',
+        CLEVERTAP_NATIVE: 'background: #7c3aed; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px;',
+        CLEVERTAP_INBOX: 'background: #059669; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px;',
+        BACKEND_SQLITE: 'background: #0d9488; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px;'
+      };
+      const badgeStyle = categoryTheme[source] || 'background: #475569; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 11px;';
+
+      try {
+        console.groupCollapsed(`%c${source}%c ${actionName}`, badgeStyle, 'color: #0f172a; font-weight: 600; font-size: 12px;');
+        console.log('%cAction:', 'font-weight: bold; color: #64748b;', actionName);
+        console.log('%cPayload:', 'font-weight: bold; color: #64748b;', payloadData);
+        console.log('%cTimestamp:', 'font-weight: bold; color: #64748b;', newEntry.timestamp);
+        console.groupEnd();
+      } catch {
+        // Fallback for simple console environments
+        console.log(`[${source}] ${actionName}`, payloadData);
+      }
+    }
   }
 
   // Displays a temporary toast message in the UI header
@@ -274,6 +300,13 @@ export function useFocusFlowViewModel() {
       }
     }
 
+    // In test environment: clear stale campaign cache on mount so stopped campaigns don't linger
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem('WZRK_CAMP');
+      window.localStorage.removeItem('WZRK_QC');
+      window.localStorage.removeItem('WZRK_CAMP_G');
+    }
+
     // 1. Initialize CleverTap Web SDK with Account ID, Token, and Region
     const initResult = initializeCleverTapSdk(initialCtConfig);
     addActivityLog('CLEVERTAP_SDK', 'clevertap.init (587-878-Z97Z / eu1)', initResult);
@@ -287,9 +320,49 @@ export function useFocusFlowViewModel() {
       typeof window !== 'undefined' ? window.sessionStorage.getItem('focusflow_user_id') : null;
     loadAllDataForUser(savedUserId || undefined).then((result) => {
       if (result?.loadedUser) {
-        // Automatically identify Elena Vance in CleverTap
-        const ctLoginPayload = sendCleverTapUserLogin(result.loadedUser, result.loadedDashboard);
-        addActivityLog('CLEVERTAP_SDK', 'clevertap.onUserLogin.push (Elena Vance)', ctLoginPayload);
+        const userId = result.loadedUser.id;
+        const alreadyIdentified =
+          typeof window !== 'undefined' &&
+          window.sessionStorage.getItem('focusflow_ct_identified') === String(userId);
+
+        if (!alreadyIdentified) {
+          // Identify Elena Vance on initial login/session start
+          const ctLoginPayload = sendCleverTapUserLogin(result.loadedUser, result.loadedDashboard);
+          addActivityLog('CLEVERTAP_SDK', 'clevertap.onUserLogin.push (Elena Vance)', ctLoginPayload);
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.setItem('focusflow_ct_identified', String(userId));
+          }
+          // After OUL completes handshake, send Dashboard Viewed without blockRequest interference
+          setTimeout(() => {
+            const dashEvent = sendCleverTapEvent(CLEVERTAP_EVENTS.DASHBOARD_VIEWED);
+            addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("Dashboard Viewed")', dashEvent);
+          }, 600);
+        } else {
+          // Already identified: fire Dashboard Viewed directly so campaigns qualify instantly
+          const dashEvent = sendCleverTapEvent(CLEVERTAP_EVENTS.DASHBOARD_VIEWED);
+          addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("Dashboard Viewed")', dashEvent);
+        }
+
+        // Check storage after network delay to log qualification status in Live Inspector
+        setTimeout(() => {
+          const campaigns = getCleverTapQualifiedCampaigns();
+          addActivityLog('CLEVERTAP_POPUP', 'CleverTap Server Campaign Sync Result', {
+            qualifiedCampaignCount: campaigns.length,
+            campaigns:
+              campaigns.length > 0
+                ? campaigns.map((c) => ({
+                    id: c.wzrk_id,
+                    wtarget_type: c.display?.wtarget_type,
+                    isExitIntent: Boolean(
+                      c.display?.deliveryTrigger?.isExitIntent || c.display?.wtarget_type === 1
+                    ),
+                    deliveryTrigger: c.display?.deliveryTrigger || '(None - immediate load)',
+                    layout: c.display?.layout || c.display?.proto || '(none)',
+                    title: c.msgContent?.title || c.display?.title || '(Custom HTML)'
+                  }))
+                : 'No active campaigns in WZRK_CAMP (check campaign status in CleverTap dashboard)'
+          });
+        }, 2500);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -315,22 +388,32 @@ export function useFocusFlowViewModel() {
 
   // Web Native Display: Register listener for "CT_web_native_display" and fetch campaigns
   useEffect(() => {
-    // 1. Register listener for document event "CT_web_native_display"
-    const cleanupListener = registerCleverTapNativeDisplayListener((data) => {
-      const topic = data?.kv?.topic;
-      if (topic) {
-        setActiveNativeTopic(topic);
-        setNativeDisplayData(data);
-        if (topic === 'Cart drop-off') {
-          renderCartDropOffPersonalisationCampaign(data);
-        } else if (topic === 'Focus Streak Milestone') {
-          renderStreakPersonalisationCampaign(data);
-        } else if (topic === 'Pro Upgrade Offer') {
-          renderProOfferPersonalisationCampaign(data);
-        }
-        addActivityLog('CLEVERTAP_NATIVE', `CT_web_native_display received [Topic: "${topic}"]`, data);
+    // 1. Register listeners for CleverTap Native Display events (KV pairs, JSON, Builder)
+    function handleIncomingNativeData(data) {
+      if (!data) return;
+      const rawKv = data.kv || (typeof data.json === 'object' ? data.json : null) || {};
+      const normalizedData = { ...data, kv: rawKv };
+      const topic = rawKv.topic || rawKv.Topic || 'Banner';
+
+      setActiveNativeTopic(topic);
+      setNativeDisplayData(normalizedData);
+
+      if (topic === 'Cart drop-off') {
+        renderCartDropOffPersonalisationCampaign(normalizedData);
+      } else if (topic === 'Focus Streak Milestone') {
+        renderStreakPersonalisationCampaign(normalizedData);
+      } else if (topic === 'Pro Upgrade Offer') {
+        renderProOfferPersonalisationCampaign(normalizedData);
+      } else {
+        renderCleverTapNotificationViewed(normalizedData);
       }
-    });
+      addActivityLog('CLEVERTAP_NATIVE', `CT_web_native_display received [Topic: "${topic}"]`, normalizedData);
+    }
+
+    const cleanupKv = registerCleverTapNativeDisplayListener(handleIncomingNativeData, 'CT_web_native_display');
+    const cleanupJson = registerCleverTapNativeDisplayListener(handleIncomingNativeData, 'CT_web_native_display_json');
+    const cleanupBuilder = registerCleverTapNativeDisplayListener(handleIncomingNativeData, 'CT_web_native_display_builder');
+    const cleanupBuilderTypo = registerCleverTapNativeDisplayListener(handleIncomingNativeData, 'CT_web_native_display_buider');
 
     // 2. Fetch native campaigns from backend & evaluate initial priority
     fetchNativeDisplayCampaignsFromBackend()
@@ -346,7 +429,10 @@ export function useFocusFlowViewModel() {
       });
 
     return () => {
-      cleanupListener();
+      cleanupKv();
+      cleanupJson();
+      cleanupBuilder();
+      cleanupBuilderTypo();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -412,6 +498,12 @@ export function useFocusFlowViewModel() {
     }
   }
 
+  function handleTriggerDashboardViewed() {
+    const ev = sendCleverTapEvent(CLEVERTAP_EVENTS.DASHBOARD_VIEWED);
+    addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("Dashboard Viewed")', ev);
+    showStatusToast("Sent 'Dashboard Viewed' to CleverTap!");
+  }
+
   // Ref keeping latest session & streak state for the Exit Intent listener without listener churn
   const exitIntentStateRef = useRef({
     dismissSpamControl,
@@ -426,73 +518,90 @@ export function useFocusFlowViewModel() {
     };
   }, [dismissSpamControl, shownCampaignsInSession, dashboard.currentStreak]);
 
-  // Effect: Desktop Exit Intent Listener (triggers when cursor moves towards browser top edge)
+  const activePopupRef = useRef(activePopup);
   useEffect(() => {
-    if (!exitIntentEnabled) return;
+    activePopupRef.current = activePopup;
+  }, [activePopup]);
 
-    const cleanup = setupCleverTapExitIntentListener((eventData) => {
-      const campaignId = 'camp_exit_intent_streak_saver';
-      const { dismissSpamControl: curDismissSpam, shownCampaignsInSession: curShown, currentStreak: curStreak } =
-        exitIntentStateRef.current;
+  // Effect: Allow CleverTap SDK to auto-inject native HTML pop-ups (Box, Banner, Interstitial, Exit Intent)
+  // and use a passive MutationObserver to observe and log native SDK injections into the Activity Inspector
+  useEffect(() => {
+    // Ensure no custom callback intercepts or suppresses native CleverTap SDK rendering
+    unregisterCleverTapNotificationCallback();
 
-      if (!curDismissSpam && curShown[campaignId]) {
-        addActivityLog('CLEVERTAP_POPUP', 'Exit Intent Blocked (dismissSpamControl = false)', {
-          reason: 'Campaign already dismissed once in this session',
-          campaignId,
-          dismissSpamControl: curDismissSpam
-        });
-        setPopupAnalytics((prev) => ({ ...prev, spamBlockedCount: prev.spamBlockedCount + 1 }));
-        return;
-      }
+    if (typeof window === 'undefined' || !window.document) return;
 
-      setActivePopup((current) => {
-        if (current) return current;
-        const msgId = `${campaignId}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
-        const pivotId = 'Variant_Exit_StreakSaver';
-        const exitPopup = {
-          id: 'intentPreview',
-          type: 'interstitial',
-          isExitIntent: true,
-          campaignId,
-          pivotId,
-          msgId,
-          title: 'Wait! Don’t Break Your Focus Streak!',
-          description: `You are currently on a ${curStreak || 1}-day streak! Complete one 25-minute Pomodoro session today to keep your streak intact.`,
-          c2aText: 'Stay & Focus (25m)',
-          secondaryText: 'Leave Website',
-          kv: { intent_source: 'desktop_window_exit', discount_pct: '25' }
-        };
-
-        renderCleverTapNotificationViewed({ msgId, pivotId });
-        addActivityLog('CLEVERTAP_POPUP', 'clevertap.renderNotificationViewed (Exit Intent Interstitial)', {
-          ...eventData,
-          popup: exitPopup
-        });
-
-        setShownCampaignsInSession((prev) => ({ ...prev, [campaignId]: true }));
-        setPopupAnalytics((prev) => ({
-          ...prev,
-          viewedCount: prev.viewedCount + 1,
-          exitIntentTriggers: prev.exitIntentTriggers + 1
-        }));
-
-        return exitPopup;
+    // Listen for official CleverTap SDK campaign rendered event
+    const handleCtCampaignRendered = (e) => {
+      addActivityLog('CLEVERTAP_POPUP', 'Official CleverTap SDK "CT_campaign_rendered" Event', {
+        source: 'clevertap-web-sdk',
+        timestamp: new Date().toLocaleTimeString()
       });
+    };
+    window.addEventListener('CT_campaign_rendered', handleCtCampaignRendered);
+
+    const loggedElements = new WeakSet();
+
+    // Passive observer: Monitors document.body for native CleverTap DOM nodes (#intentPreview, #intentOpacityDiv, #wiz-iframe-intent, etc.)
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === 1) {
+            const id = node.id || '';
+            const className = typeof node.className === 'string' ? node.className : '';
+            const isCleverTapNode =
+              id === 'intentOpacityDiv' ||
+              id === 'intentPreview' ||
+              id === 'wiz-iframe-intent' ||
+              id.startsWith('wizParDiv') ||
+              id.startsWith('wzrk') ||
+              className.includes('wzrk') ||
+              (node.tagName === 'IFRAME' && (node.src?.includes('clevertap') || id.includes('wzrk')));
+
+            if (isCleverTapNode && !loggedElements.has(node) && !activePopupRef.current) {
+              loggedElements.add(node);
+
+              const isExitIntent = id === 'intentPreview' || id === 'intentOpacityDiv' || id === 'wiz-iframe-intent';
+
+              addActivityLog(
+                'CLEVERTAP_POPUP',
+                isExitIntent
+                  ? 'Official CleverTap Native Exit Intent Pop-up Injected by SDK'
+                  : 'Official CleverTap Native Pop-up Injected by SDK',
+                {
+                  elementId: id || node.tagName.toLowerCase(),
+                  detectedTag: node.tagName,
+                  channel: isExitIntent ? 'Web Exit Intent' : 'Web In-App Pop-up',
+                  source: 'CleverTap Web SDK Engine (100% Native - Zero Fallbacks)',
+                  timestamp: new Date().toLocaleTimeString()
+                }
+              );
+
+              node.addEventListener(
+                'click',
+                (e) => {
+                  const target = e.target;
+                  const buttonLabel = target?.innerText || target?.title || target?.tagName || 'Button';
+                  addActivityLog('CLEVERTAP_POPUP', 'Live CleverTap Pop-up Action Clicked', {
+                    clickedLabel: buttonLabel.trim().slice(0, 50),
+                    targetTag: target?.tagName,
+                    elementId: id
+                  });
+                },
+                { passive: true }
+              );
+            }
+          }
+        }
+      }
     });
 
-    return cleanup;
-  }, [exitIntentEnabled]);
+    observer.observe(document.body, { childList: true, subtree: true });
 
-  // Effect: Register CleverTap Custom Callbacks (notificationCallback & popupCallback)
-  useEffect(() => {
-    registerCleverTapNotificationCallback((msg) => {
-      setCustomNotificationMsg(msg);
-      addActivityLog('CLEVERTAP_POPUP', 'clevertap.notificationCallback received', msg);
-    });
-
-    registerCleverTapPopupCallback((data) => {
-      addActivityLog('CLEVERTAP_POPUP', 'clevertap.popupCallback received', data);
-    });
+    return () => {
+      window.removeEventListener('CT_campaign_rendered', handleCtCampaignRendered);
+      observer.disconnect();
+    };
   }, []);
 
   // --- WEB POP-UPS & EXIT INTENT ACTION HANDLERS ---
@@ -661,10 +770,36 @@ export function useFocusFlowViewModel() {
 
   function handleResetSessionCampaigns() {
     setShownCampaignsInSession({});
-    showStatusToast('Reset session campaign history (Simulating new session)');
-    addActivityLog('CLEVERTAP_POPUP', 'Session Campaign History Reset', {
-      note: 'All campaigns can now be shown again even if dismissSpamControl = false'
+    const purgeResult = purgeCleverTapLocalCache();
+    showStatusToast('Session history reset & CleverTap cache (WZRK_CAMP) purged');
+    addActivityLog('CLEVERTAP_POPUP', 'Session Campaign History & Cache Purged', {
+      purgedKeys: purgeResult.removedKeys || ['WZRK_CAMP'],
+      note: 'All cached campaign definitions wiped from browser storage'
     });
+  }
+
+  function handlePurgeCleverTapCache() {
+    const purgeResult = purgeCleverTapLocalCache();
+    setNativeDisplayData(null);
+    setActiveNativeTopic(null);
+    showStatusToast('CleverTap cache purged. Stale campaigns cleared.');
+    addActivityLog('CLEVERTAP_SDK', 'Purged CleverTap Local Storage Cache & Resyncing', {
+      purgedKeys: purgeResult.removedKeys || ['WZRK_CAMP', 'WZRK_QC'],
+      status: 'Clean state. Firing App Launched to fetch active campaigns...'
+    });
+    const launchEv = sendCleverTapEvent(CLEVERTAP_EVENTS.APP_LAUNCHED);
+    addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("App Launched") [Resync]', launchEv);
+    setTimeout(() => {
+      const campaigns = getCleverTapQualifiedCampaigns();
+      addActivityLog('CLEVERTAP_POPUP', 'Campaign Resync Result', {
+        qualifiedCampaignCount: campaigns.length,
+        campaigns: campaigns.map((c) => ({
+          id: c.wzrk_id,
+          campaignId: String(c.wzrk_id).split('_')[0],
+          title: c.msgContent?.title || c.display?.title || 'Exit Intent Promo'
+        }))
+      });
+    }, 2000);
   }
 
   // --- WEB PUSH & VAPID ACTIONS ---
@@ -851,9 +986,14 @@ export function useFocusFlowViewModel() {
   function handleResetNativeFallback() {
     setNativeDisplayData(null);
     setActiveNativeTopic(null);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem('WZRK_CAMP');
+      window.localStorage.removeItem('WZRK_QC');
+      window.localStorage.removeItem('WZRK_CAMP_G');
+    }
     addActivityLog('CLEVERTAP_NATIVE', 'Reset to Default / Fallback Content', {
       fallbackActive: true,
-      reason: 'Manual reset or fallback test'
+      reason: 'Manual reset and cleared local campaign cache'
     });
     showStatusToast('Reverted to Default / Fallback Content');
   }
@@ -862,6 +1002,11 @@ export function useFocusFlowViewModel() {
     const payload = data || nativeDisplayData;
     renderCleverTapNotificationClicked(payload);
     addActivityLog('CLEVERTAP_NATIVE', 'clevertap.renderNotificationClicked()', payload);
+    const rawUrl = payload?.kv?.cta_url || payload?.kv?.ctaUrl || payload?.kv?.url || payload?.kv?.Url;
+    if (rawUrl && typeof window !== 'undefined') {
+      const targetUrl = /^https?:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : `https://${rawUrl.trim()}`;
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    }
     showStatusToast('Notification Clicked tracked in CleverTap!');
   }
 
@@ -1174,6 +1319,7 @@ export function useFocusFlowViewModel() {
   function handleSignOut() {
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem('focusflow_user_id');
+      window.sessionStorage.removeItem('focusflow_ct_identified');
     }
     const logoutEv = sendCleverTapEvent(CLEVERTAP_EVENTS.USER_LOGGED_OUT);
     addActivityLog('CLEVERTAP_SDK', 'clevertap.event.push("User Logged Out")', logoutEv);
@@ -1642,6 +1788,8 @@ export function useFocusFlowViewModel() {
     handlePipAnchorChange,
     handlePipControl,
     handleResetSessionCampaigns,
+    handlePurgeCleverTapCache,
+    handleTriggerDashboardViewed,
 
     // Web Push & VAPID Protocol state & handlers
     pushPermissionStatus,

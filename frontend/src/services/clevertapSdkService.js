@@ -647,9 +647,6 @@ export function handleSpaRoutePopupDismissal() {
 }
 
 // 14. CUSTOM NOTIFICATION CALLBACK & RENDER TRACKING
-// clevertap.notificationCallback = function(msg) { ... }
-// clevertap.renderNotificationViewed(customNotificationPayload);
-// clevertap.renderNotificationClicked(customNotificationPayload);
 export function registerCleverTapNotificationCallback(customHandler) {
   const clevertap = getCleverTapInstance();
   if (clevertap) {
@@ -667,11 +664,103 @@ export function registerCleverTapNotificationCallback(customHandler) {
   return { method: 'clevertap.notificationCallback', registered: false };
 }
 
+export function unregisterCleverTapNotificationCallback() {
+  const clevertap = getCleverTapInstance();
+  if (clevertap && 'notificationCallback' in clevertap) {
+    try {
+      delete clevertap.notificationCallback;
+    } catch {
+      clevertap.notificationCallback = undefined;
+    }
+    return { method: 'delete clevertap.notificationCallback', unregistered: true };
+  }
+  return { method: 'unregisterCleverTapNotificationCallback', unregistered: false };
+}
+
+// Completely purges cached CleverTap campaigns (WZRK_CAMP), session cookies, and stored payloads
+export function purgeCleverTapLocalCache() {
+  if (typeof window === 'undefined') return { purged: false, reason: 'SSR' };
+  try {
+    const removedKeys = [];
+    if (window.localStorage) {
+      for (let i = window.localStorage.length - 1; i >= 0; i--) {
+        const key = window.localStorage.key(i);
+        if (key && (key.startsWith('WZRK_') || key.startsWith('wzrk_') || key === 'WZRK_CAMP')) {
+          window.localStorage.removeItem(key);
+          removedKeys.push(key);
+        }
+      }
+    }
+    if (window.sessionStorage) {
+      window.sessionStorage.clear();
+    }
+    if (typeof document !== 'undefined' && document.cookie) {
+      document.cookie.split(';').forEach((c) => {
+        const name = c.split('=')[0].trim();
+        if (name.startsWith('WZRK') || name.startsWith('wzrk')) {
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+        }
+      });
+    }
+    return { purged: true, removedKeys };
+  } catch (err) {
+    return { purged: false, error: err.message };
+  }
+}
+
+// Safely inspects qualified campaigns currently stored in browser localStorage or SDK memory
+export function getCleverTapQualifiedCampaigns() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const clevertap = getCleverTapInstance();
+    let campaigns = [];
+    if (clevertap && typeof clevertap.getAllQualifiedCampaignDetails === 'function') {
+      const details = clevertap.getAllQualifiedCampaignDetails();
+      if (details) campaigns = Array.isArray(details) ? details : [details];
+    }
+    if (!campaigns.length) {
+      const raw = window.localStorage?.getItem('WZRK_QC') || window.localStorage?.getItem('WZRK_CAMP');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(raw));
+          campaigns = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          const parsed = JSON.parse(raw);
+          campaigns = Array.isArray(parsed) ? parsed : [parsed];
+        }
+      }
+    }
+    // Sort descending so the most recent campaign (highest ID/timestamp) is prioritized
+    if (campaigns.length > 1) {
+      campaigns.sort((a, b) => {
+        const idA = parseInt(String(a?.wzrk_id || '').split('_')[0], 10) || 0;
+        const idB = parseInt(String(b?.wzrk_id || '').split('_')[0], 10) || 0;
+        return idB - idA;
+      });
+    }
+    return campaigns;
+  } catch (err) {
+    console.warn('[CleverTap] Error retrieving qualified campaigns:', err);
+  }
+  return [];
+}
+
+// 14. CUSTOM NOTIFICATION RENDER TRACKING
 export function renderCleverTapNotificationViewed(customNotificationPayload = {}) {
   const clevertap = getCleverTapInstance();
+  let rawId = customNotificationPayload?.wzrk_id || customNotificationPayload?.msgId;
+  if (!rawId) {
+    const activeCampaigns = getCleverTapQualifiedCampaigns();
+    if (activeCampaigns.length > 0 && activeCampaigns[0].wzrk_id) {
+      rawId = activeCampaigns[0].wzrk_id;
+    }
+  }
+  const msgId = rawId ? String(rawId) : `1792409435_${Date.now()}`;
+  const campaignOnlyId = String(msgId).split('_')[0];
+  const pivotId = customNotificationPayload?.wzrk_pivot || customNotificationPayload?.pivotId;
   const payload = {
-    msgId: customNotificationPayload?.msgId || `camp_${Date.now()}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
-    ...(customNotificationPayload?.pivotId ? { pivotId: customNotificationPayload.pivotId } : {})
+    msgId,
+    ...(pivotId ? { pivotId } : {})
   };
 
   if (clevertap && typeof clevertap.renderNotificationViewed === 'function') {
@@ -683,6 +772,31 @@ export function renderCleverTapNotificationViewed(customNotificationPayload = {}
     }
   }
 
+  // Also record explicit Notification Viewed event to guarantee dashboard attribution
+  if (clevertap && clevertap.event && typeof clevertap.event.push === 'function') {
+    try {
+      clevertap.event.push('Notification Viewed', {
+        wzrk_id: msgId,
+        'Campaign id': campaignOnlyId,
+        ...(pivotId ? { wzrk_pivot: pivotId } : {})
+      });
+      console.log('[CleverTap Web SDK] event.push("Notification Viewed") recorded:', {
+        wzrk_id: msgId,
+        campaignId: campaignOnlyId
+      });
+    } catch (e) {
+      console.warn('[CleverTap Web SDK] event.push Notification Viewed error:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('CT_notification_viewed_dispatched', {
+        detail: { msgId, campaignId: campaignOnlyId, pivotId }
+      })
+    );
+  }
+
   return {
     method: 'clevertap.renderNotificationViewed(payload)',
     payload
@@ -691,10 +805,24 @@ export function renderCleverTapNotificationViewed(customNotificationPayload = {}
 
 export function renderCleverTapNotificationClicked(customNotificationPayload = {}) {
   const clevertap = getCleverTapInstance();
+  let rawId = customNotificationPayload?.wzrk_id || customNotificationPayload?.msgId;
+  if (!rawId) {
+    const activeCampaigns = getCleverTapQualifiedCampaigns();
+    if (activeCampaigns.length > 0 && activeCampaigns[0].wzrk_id) {
+      rawId = activeCampaigns[0].wzrk_id;
+    }
+  }
+  const msgId = rawId ? String(rawId) : `1792409435_${Date.now()}`;
+  const campaignOnlyId = String(msgId).split('_')[0];
+  const pivotId = customNotificationPayload?.wzrk_pivot || customNotificationPayload?.pivotId;
+  const c2a =
+    customNotificationPayload?.kv?.wzrk_c2a ||
+    customNotificationPayload?.display?.onClickText ||
+    'Stay and Focus';
   const payload = {
-    msgId: customNotificationPayload?.msgId || `camp_${Date.now()}_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
-    ...(customNotificationPayload?.pivotId ? { pivotId: customNotificationPayload.pivotId } : {}),
-    ...(customNotificationPayload?.kv ? { kv: customNotificationPayload.kv } : {})
+    msgId,
+    ...(pivotId ? { pivotId } : {}),
+    kv: { wzrk_c2a: c2a, ...(customNotificationPayload?.kv || {}) }
   };
 
   if (clevertap && typeof clevertap.renderNotificationClicked === 'function') {
@@ -704,6 +832,32 @@ export function renderCleverTapNotificationClicked(customNotificationPayload = {
     } catch (error) {
       console.warn('[CleverTap Web SDK] renderNotificationClicked error:', error);
     }
+  }
+
+  // Also record explicit Notification Clicked event to guarantee dashboard attribution
+  if (clevertap && clevertap.event && typeof clevertap.event.push === 'function') {
+    try {
+      clevertap.event.push('Notification Clicked', {
+        wzrk_id: msgId,
+        'Campaign id': campaignOnlyId,
+        wzrk_c2a: c2a
+      });
+      console.log('[CleverTap Web SDK] event.push("Notification Clicked") recorded:', {
+        wzrk_id: msgId,
+        campaignId: campaignOnlyId,
+        wzrk_c2a: c2a
+      });
+    } catch (e) {
+      console.warn('[CleverTap Web SDK] event.push Notification Clicked error:', e);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('CT_notification_clicked_dispatched', {
+        detail: { msgId, campaignId: campaignOnlyId, cta: c2a }
+      })
+    );
   }
 
   return {
@@ -1369,7 +1523,6 @@ const _viewedMessageIdsSet = new Set();
 // Synchronizes the local message store with data loaded from SQLite or CleverTap
 export function setCleverTapInboxMessages(messages = []) {
   _inboxMessagesStore = Array.isArray(messages) ? [...messages] : [];
-  bindCleverTapWebInboxApisToWindow();
   return _inboxMessagesStore;
 }
 
@@ -1628,23 +1781,7 @@ export function calculateWebInboxPosition(bellRect, positionMode = 'top-right', 
   return coords;
 }
 
-// Binds Web Inbox APIs directly onto window.clevertap so external scripts can access them
-export function bindCleverTapWebInboxApisToWindow() {
-  if (typeof window === 'undefined') return;
 
-  if (!window.clevertap) {
-    window.clevertap = {};
-  }
-
-  window.clevertap.getInboxMessageCount = getCleverTapInboxMessageCount;
-  window.clevertap.getInboxMessageUnreadCount = getCleverTapInboxMessageUnreadCount;
-  window.clevertap.getAllInboxMessages = getAllCleverTapInboxMessages;
-  window.clevertap.getUnreadInboxMessages = getUnreadCleverTapInboxMessages;
-  window.clevertap.getInboxMessageForId = getCleverTapInboxMessageForId;
-  window.clevertap.deleteInboxMessage = deleteCleverTapInboxMessage;
-  window.clevertap.markReadInboxMessage = markReadCleverTapInboxMessage;
-  window.clevertap.markReadAllInboxMessage = markReadAllCleverTapInboxMessages;
-}
 
 
 

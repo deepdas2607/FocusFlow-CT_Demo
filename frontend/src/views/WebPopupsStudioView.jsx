@@ -477,18 +477,11 @@ export default function WebPopupsStudioView({
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => onToggleExitIntent(!exitIntentEnabled)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    exitIntentEnabled
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                  }`}
-                >
-                  Exit Intent: {exitIntentEnabled ? 'Active (ON)' : 'Disabled (OFF)'}
-                </button>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  SDK Native Engine Active
+                </span>
               </div>
             </div>
 
@@ -516,22 +509,18 @@ export default function WebPopupsStudioView({
                   <button
                     type="button"
                     onClick={() => {
-                      onTriggerPopup('interstitial', {
-                        isExitIntent: true,
-                        campaignId: 'camp_exit_intent_streak_saver',
-                        pivotId: 'Variant_Exit_ManualSim',
-                        title: 'Wait! Don’t Break Your Focus Streak!',
-                        description: 'Simulated Exit Intent triggered! Complete a 25-minute Pomodoro session today to keep your streak intact.',
-                        c2aText: 'Stay & Focus Now',
-                        secondaryText: 'Leave Anyway'
-                      });
+                      if (typeof window !== 'undefined' && window.document) {
+                        window.document.dispatchEvent(
+                          new MouseEvent('mouseleave', { clientY: -1, bubbles: true, cancelable: true })
+                        );
+                      }
                     }}
                     className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
                     <span>Simulate Pointer Leaving Window (Trigger Exit Intent)</span>
                   </button>
                   <p className="text-[11px] text-slate-400 text-center mt-2">
-                    Or move your mouse cursor above the browser window header to trigger the real listener!
+                    Dispatches native DOM mouseleave (clientY &le; 0) directly to CleverTap Web SDK listener.
                   </p>
                 </div>
               </div>
@@ -544,9 +533,7 @@ export default function WebPopupsStudioView({
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between py-1 border-b border-slate-200">
                       <span className="text-slate-500">Listener Status:</span>
-                      <span className={exitIntentEnabled ? 'text-emerald-600 font-bold' : 'text-slate-500'}>
-                        {exitIntentEnabled ? 'Active & Listening' : 'Disabled'}
-                      </span>
+                      <span className="text-emerald-600 font-bold">Native SDK Listening</span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-200">
                       <span className="text-slate-500">Viewport Mode:</span>

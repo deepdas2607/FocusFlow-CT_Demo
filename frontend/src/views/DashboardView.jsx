@@ -9,7 +9,11 @@ export default function DashboardView({
   user,
   dashboard,
   onNavigateTab,
-  onToggleTaskComplete
+  onToggleTaskComplete,
+  nativeDisplayData = null,
+  onNativeActionClick = () => {},
+  activeNativeTopic = null,
+  onResetNativeFallback = () => {}
 }) {
   // Returns a time-appropriate greeting based on the user's current hour
   function getTimeOfDayGreeting() {
@@ -34,6 +38,8 @@ export default function DashboardView({
     Medium: 'bg-amber-50 text-amber-700 border-amber-200',
     Low: 'bg-emerald-50 text-emerald-700 border-emerald-200'
   };
+
+  const kv = nativeDisplayData?.kv;
 
   return (
     <div className="space-y-8">
@@ -134,22 +140,68 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* 3. Hero Call-to-Action Banner */}
-      <div className="bg-indigo-600 rounded-2xl p-6 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
-        <div>
-          <h2 className="text-xl font-bold">Ready to enter deep work?</h2>
-          <p className="text-indigo-100 text-sm mt-1">
-            Launch a timed Pomodoro session linked to one of your tasks and track your focus progress.
-          </p>
+      {/* 3. CleverTap Web Native Display Element / Personalized Hero Banner */}
+      {kv ? (
+        <div className="rounded-2xl p-6 text-white shadow-md relative overflow-hidden bg-gradient-to-r from-purple-700 via-indigo-700 to-slate-900 border border-purple-500/30">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full bg-white/20 text-white backdrop-blur-xs flex items-center gap-1.5">
+              <span>✨</span> CleverTap Native Display · {activeNativeTopic || 'Personalized'}
+            </span>
+            <button
+              type="button"
+              onClick={onResetNativeFallback}
+              className="text-[11px] text-white/70 hover:text-white underline cursor-pointer"
+            >
+              Revert to default banner
+            </button>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="text-xl font-bold text-white tracking-tight">
+                {kv.title || kv.Title || kv.heading || kv.Heading || 'Special Personalized Recommendation'}
+              </h2>
+              <p className="text-purple-100 text-sm mt-1 leading-relaxed">
+                {kv.description || kv.Description || kv.body || kv.Body || kv.message || kv.Message || 'Contextual message tailored to your productivity journey.'}
+              </p>
+              {(kv.discount_pct || kv.streak_days) && (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-bold text-xs">
+                    {kv.discount_pct ? `${kv.discount_pct}% Special Discount` : `${kv.streak_days} Days Streak!`}
+                  </span>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => onNativeActionClick(nativeDisplayData)}
+              className="bg-white text-indigo-700 hover:bg-purple-50 font-semibold text-sm px-6 py-3 rounded-xl transition-all shadow-sm shrink-0 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {kv.cta_text || kv.ctaText || kv.button_text || kv.buttonText || kv.ButtonText || 'Claim Offer →'}
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => onNavigateTab('focus')}
-          className="bg-white text-indigo-600 hover:bg-indigo-50 font-semibold text-sm px-6 py-3 rounded-xl transition-colors shrink-0 cursor-pointer"
-        >
-          Launch Focus Timer →
-        </button>
-      </div>
+      ) : (
+        <div className="bg-indigo-600 rounded-2xl p-6 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm relative overflow-hidden">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-bold">Ready to enter deep work?</h2>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/60 text-indigo-100">
+                Default / Fallback
+              </span>
+            </div>
+            <p className="text-indigo-100 text-sm mt-1">
+              Launch a timed Pomodoro session linked to one of your tasks and track your focus progress.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateTab('focus')}
+            className="bg-white text-indigo-600 hover:bg-indigo-50 font-semibold text-sm px-6 py-3 rounded-xl transition-colors shrink-0 cursor-pointer"
+          >
+            Launch Focus Timer →
+          </button>
+        </div>
+      )}
 
       {/* 4. Today's Tasks List */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs">
